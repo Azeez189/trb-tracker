@@ -7,6 +7,7 @@
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mute:#6b7280;--line:#e5e7eb;--brand:#c2410c;--brandbg:#fff1e8;--ok:#15803d;--okbg:#dcfce7;--bad:#b91c1c;--badbg:#fee2e2;--warn:#b45309;--warnbg:#fef3c7}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
 header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
 .bar{max-width:1240px;margin:auto;padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -95,10 +96,26 @@ input.num{width:60px;padding:3px 6px}
 code{background:#f1f3f5;padding:1px 5px;border-radius:4px}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:#1d2330;color:#fff;padding:10px 16px;border-radius:10px;transition:.25s;z-index:50;opacity:0}
 #toast.show{transform:translateX(-50%);opacity:1}#toast.bad{background:var(--bad)}
+/* --- v2: akaun & pengguna --- */
+.who-chip{font-size:13px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.rb{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.03em}
+.rb.owner{background:#1d2330;color:#fff}.rb.admin{background:#ede9fe;color:#6d28d9}.rb.editor{background:#dbeafe;color:#1d4ed8}.rb.staff{background:#f1f3f5;color:var(--mute)}
+.rb.pending{background:var(--warnbg);color:var(--warn)}.rb.approved{background:var(--okbg);color:var(--ok)}.rb.rejected,.rb.suspended{background:var(--badbg);color:var(--bad)}
+.note{padding:10px 12px;border-radius:8px;background:var(--okbg);color:var(--ok);font-size:13px;line-height:1.5}
+.note.bad{background:var(--badbg);color:var(--bad)}.note.info{background:#eff6ff;color:#1d4ed8}
+.linkbtn{background:none;border:0;color:var(--brand);padding:0;font-size:13px;text-decoration:underline;cursor:pointer}
+.authfoot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px}
+.whotick{font-size:11px;color:var(--ok);white-space:nowrap}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters button{background:#fff;color:var(--ink);border-color:var(--line);font-size:13px;padding:5px 10px}
+.filters button.on{background:var(--brandbg);border-color:var(--brand);color:var(--brand);font-weight:600}
+.utbl select{padding:4px 6px;font-size:13px;max-width:170px}
+.utbl td{vertical-align:middle}
+.uid{font-family:ui-monospace,monospace;font-size:12px;background:#f1f3f5;padding:6px 8px;border-radius:6px;word-break:break-all;user-select:all}
 </style>
 </head>
 <body>
-<div id="demo" hidden>Mod demo: data contoh, tak disimpan. Isi https://oyvsmprmustmsirfdsqu.supabase.co/rest/v1/ &amp; sb_publishable_H0oVuPmAef-Zi0ZXfyonIw_2t1UmOxi dalam index.html untuk guna betul-betul.</div>
+<div id="demo" hidden>Mod demo: data contoh, tak disimpan. Isi SUPABASE_URL &amp; SUPABASE_KEY dalam index.html untuk guna betul-betul.</div>
 <header><div class="bar">
   <div class="logo">TRB <span>Task Tracker</span></div>
   <nav>
@@ -106,8 +123,10 @@ code{background:#f1f3f5;padding:1px 5px;border-radius:4px}
     <button data-tab="week">📅 Grid Minggu</button>
     <button data-tab="summary">📊 Ringkasan</button>
     <button data-tab="manage">⚙️ Urus Team &amp; Task</button>
+    <button data-tab="users">👥 Pengurusan Pengguna</button>
   </nav>
   <div class="spacer"></div>
+  <span id="who" class="who-chip"></span>
   <button id="logout" class="ghost sm" data-act="logout" hidden>Log keluar</button>
 </div></header>
 <main id="app"><div class="card empty">Loading…</div></main>
@@ -115,14 +134,17 @@ code{background:#f1f3f5;padding:1px 5px;border-radius:4px}
 
 <script type="module">
 // =====================================================================
-//  TETAPAN — isi dua baris ni dengan maklumat projek Supabase abang
-//  (Supabase → Project Settings → API). Kalau kosong = mod demo.
+//  TETAPAN — isi dengan maklumat projek Supabase abang
+//  (Supabase → Project Settings → API Keys). Kalau kosong = mod demo.
+//  ⚠️ Guna "Publishable key" (sb_publishable_...) atau "anon public" key.
+//  ❌ JANGAN letak "secret key" / "service_role" key di sini.
 // =====================================================================
 const SUPABASE_URL = "https://oyvsmprmustmsirfdsqu.supabase.co"
-const SUPABASE_ANON_KEY = "sb_publishable_H0oVuPmAef-Zi0ZXfyonIw_2t1UmOxi"
+const SUPABASE_KEY = "sb_publishable_H0oVuPmAef-Zi0ZXfyonIw_2t1UmOxi"
+const SITE_URL     = "https://azeez189.github.io/trb-tracker/";  // alamat website (untuk link email)
 // =====================================================================
 
-const DEMO = !SUPABASE_URL || !SUPABASE_ANON_KEY;
+const DEMO = !SUPABASE_URL || !SUPABASE_KEY;
 
 // ---------- helper tarikh ----------
 const pad = n => String(n).padStart(2, "0");
@@ -155,7 +177,7 @@ function sbApi(sb) {
     checks: async (f, t) => {
       let out = [];
       for (let i = 0; ; i += 1000) {
-        const d = ok(await sb.from("checks").select("task_id,date").gte("date", f).lte("date", t)
+        const d = ok(await sb.from("checks").select("task_id,date,done_by,done_at").gte("date", f).lte("date", t)
           .order("date").order("task_id").range(i, i + 999));
         out = out.concat(d);
         if (d.length < 1000) return out;
@@ -169,6 +191,14 @@ function sbApi(sb) {
     setCheck: async (task_id, date, on) => ok(on
       ? await sb.from("checks").upsert({ task_id, date }, { onConflict: "task_id,date", ignoreDuplicates: true })
       : await sb.from("checks").delete().eq("task_id", task_id).eq("date", date)),
+    // --- akaun & pengguna (semua disemak di server oleh RLS / fungsi SQL) ---
+    myProfile: async uid => ok(await sb.from("profiles").select("*").eq("id", uid).maybeSingle()),
+    people: async () => ok(await sb.rpc("people")),
+    users: async () => ok(await sb.from("profiles").select("*").order("created_at", { ascending: false })),
+    setStatus: async (id, s) => ok(await sb.rpc("set_user_status", { p_target: id, p_status: s })),
+    setRole: async (id, r) => ok(await sb.rpc("set_user_role", { p_target: id, p_role: r })),
+    linkMember: async (id, m) => ok(await sb.rpc("link_user_member", { p_target: id, p_member: m || null })),
+    createMemberFor: async id => ok(await sb.rpc("create_member_for_user", { p_target: id })),
   };
 }
 
@@ -182,14 +212,31 @@ function demoApi() {
   return {
     members: async () => st.members.map(x => ({ ...x })),
     tasks: async () => st.tasks.map(x => ({ ...x })),
-    checks: async (f, t) => [...st.checks].map(k => { const [task_id, date] = k.split("|"); return { task_id, date }; })
+    checks: async (f, t) => [...st.checks].map(k => { const [task_id, date] = k.split("|"); return { task_id, date, ...st.info.get(k) }; })
       .filter(r => r.date >= f && r.date <= t),
     saveMember: async m => upsert(st.members, m),
     delMember: async id => { st.members = st.members.filter(x => x.id !== id); st.tasks = st.tasks.filter(t => t.member_id !== id); },
     saveTask: async t => upsert(st.tasks, t),
     insertTasks: async arr => arr.map(t => upsert(st.tasks, t)),
     delTask: async id => { st.tasks = st.tasks.filter(x => x.id !== id); },
-    setCheck: async (task, date, on) => { const k = task + "|" + date; on ? st.checks.add(k) : st.checks.delete(k); },
+    setCheck: async (task, date, on) => {
+      const k = task + "|" + date;
+      if (on) { st.checks.add(k); st.info.set(k, { done_by: ME.id, done_at: new Date().toISOString() }); } else { st.checks.delete(k); st.info.delete(k); }
+    },
+    myProfile: async () => ({ ...st.users[0] }),
+    people: async () => st.users.map(u => ({ id: u.id, full_name: u.full_name })),
+    users: async () => st.users.map(u => ({ ...u })),
+    setStatus: async (id, s) => { const u = st.users.find(x => x.id === id); u.status = s; if (s === "approved") u.approved_at = new Date().toISOString(); },
+    setRole: async (id, r) => { st.users.find(x => x.id === id).role = r; },
+    linkMember: async (id, m) => {
+      if (m && st.users.some(x => x.member_id === m && x.id !== id)) throw new Error("Member ini sudah dihubungkan dengan akaun lain");
+      st.users.find(x => x.id === id).member_id = m || null;
+    },
+    createMemberFor: async id => {
+      const u = st.users.find(x => x.id === id);
+      const m = upsert(st.members, { name: u.full_name, role: "", start_date: today(), end_date: null, active: true });
+      u.member_id = m.id; return m.id;
+    },
   };
 }
 
@@ -221,6 +268,16 @@ function seed() {
   add(m3, "Shopee", "10 Video Shopee");
   add(m3, "Shopee", "Update link affiliate produk baru", { days: [1, 4] });
   const stale = new Set([tasks[15].id, tasks[31].id, tasks[37].id]);
+  const iso = (dd, h) => new Date(parse(dd).getTime() + h * 36e5).toISOString();
+  const users = [
+    { id: "demo-owner", full_name: "Abang Azeez", email: "abdulazeez5510@gmail.com", role: "owner", status: "approved", member_id: null, created_at: iso(addDays(T, -70), 9) },
+    { id: "u-haziq", full_name: "Muhammad Haziq Hakimi", email: "haziq@gmail.com", role: "staff", status: "approved", member_id: m1.id, created_at: iso(addDays(T, -60), 10) },
+    { id: "u-ain", full_name: "Ain", email: "ain.live@gmail.com", role: "editor", status: "approved", member_id: m2.id, created_at: iso(addDays(T, -44), 11) },
+    { id: "u-hafiy", full_name: "Hafiy", email: "hafiy@gmail.com", role: "staff", status: "suspended", member_id: m3.id, created_at: iso(addDays(T, -44), 12) },
+    { id: "u-new1", full_name: "Nurul Aina", email: "nurulaina@gmail.com", role: "staff", status: "pending", member_id: null, created_at: iso(T, 8) },
+    { id: "u-new2", full_name: "Faris", email: "faris.trb@gmail.com", role: "staff", status: "pending", member_id: null, created_at: iso(addDays(T, -1), 15) },
+  ];
+  const info = new Map();
   const checks = new Set(), all = [m1, m2, m3];
   for (let i = 70; i >= 0; i--) {
     const d = addDays(T, -i), dow = parse(d).getDay();
@@ -230,22 +287,44 @@ function seed() {
       let p = i === 0 ? 0.45 : 0.92;
       if (m === m3) p -= 0.2;
       if (stale.has(t.id) && i < 14) p = 0;
-      if (rnd() < p) checks.add(t.id + "|" + d);
+      if (rnd() < p) {
+        const k = t.id + "|" + d; checks.add(k);
+        const by = users.find(u => u.member_id === t.member_id && rnd() < 0.9) || users[0];
+        info.set(k, { done_by: by.id, done_at: iso(d, 9 + Math.floor(rnd() * 10)) });
+      }
     }
   }
-  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks };
+  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks, info, users };
 }
 
 // ---------- state ----------
 let api, sb = null;
-const S = { members: [], tasks: [], done: new Set(), range: null, tab: "today", member: "", date: today(),
+let ME = null;            // profile akaun yang login: {id, full_name, email, role, status, member_id}
+let RECOVERY = false;     // true bila user buka link reset password
+const S = { members: [], tasks: [], done: new Set(), info: new Map(), people: new Map(), users: [], ufilter: "pending",
+  range: null, tab: "today", member: "", date: today(),
   week: mondayOf(today()), stale: 3, editTask: null, editMember: null, bulk: false, manageMember: null };
+
+// ---------- kebenaran (paparan sahaja; penguatkuasaan sebenar di Supabase RLS) ----------
+const ROLE_LABEL = { owner: "Owner", admin: "Admin", editor: "Editor", staff: "Staff" };
+const STATUS_LABEL = { pending: "Pending", approved: "Approved", rejected: "Rejected", suspended: "Suspended" };
+const can = {
+  manage: () => ["owner", "admin", "editor"].includes(ME?.role),
+  users: () => ["owner", "admin"].includes(ME?.role),
+  delMember: () => ["owner", "admin"].includes(ME?.role),
+};
+const canActOn = u => !!ME && u.id !== ME.id &&
+  (ME.role === "owner" ? u.role !== "owner" : ME.role === "admin" ? ["staff", "editor"].includes(u.role) : false);
+const roleOptions = () => ME.role === "owner" ? ["admin", "editor", "staff"] : ["editor", "staff"];
+const errMsg = e => (e?.code === "42501" || /row-level security|permission denied/i.test(e?.message || ""))
+  ? "Tiada kebenaran untuk tindakan ini." : (e?.message || String(e));
 
 async function ensure(f, t) {
   if (S.range && f >= S.range[0] && t <= S.range[1]) return;
   if (S.range) { if (S.range[0] < f) f = S.range[0]; if (S.range[1] > t) t = S.range[1]; }
   const rows = await api.checks(f, t);
   S.done = new Set(rows.map(r => r.task_id + "|" + r.date));
+  S.info = new Map(rows.map(r => [r.task_id + "|" + r.date, { by: r.done_by, at: r.done_at }]));
   S.range = [f, t];
 }
 async function loadAll() {
@@ -253,8 +332,16 @@ async function loadAll() {
   sortAll();
   S.range = null;
   await ensure(addDays(today(), -120), addDays(today(), 7));
-  if (!S.member || !S.members.some(m => m.id === S.member)) S.member = S.members.find(m => m.active)?.id || "";
+  try { S.people = new Map((await api.people()).map(p => [p.id, p.full_name])); } catch { S.people = new Map(); }
+  if (!can.manage()) S.member = ME.member_id || "";
+  else if (!S.member || !S.members.some(m => m.id === S.member)) S.member = S.members.find(m => m.active)?.id || "";
 }
+const whoTxt = (t, d) => {
+  const i = S.info.get(t.id + "|" + d); if (!i) return "";
+  const nm = i.by ? (i.by === ME?.id ? "Anda" : S.people.get(i.by) || "Pengguna lain") : "—";
+  const at = i.at ? new Date(i.at) : null;
+  return `${nm}${at ? ` · ${at.getDate()}/${at.getMonth() + 1} ${pad(at.getHours())}:${pad(at.getMinutes())}` : ""}`;
+};
 const sortAll = () => {
   S.members.sort((a, b) => a.name.localeCompare(b.name));
   S.tasks.sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
@@ -326,7 +413,7 @@ const daysTxt = ds => {
 
 // ---------- komponen ----------
 const link = t => t.link ? `<a class="lnk" href="${esc(safeUrl(t.link))}" target="_blank" rel="noopener">Buka ↗</a>` : "";
-const memberSel = all => `<select id="memSel">${all ? `<option value="">Semua member</option>` : ""}${S.members.filter(m => m.active)
+const memberSel = all => `<select id="memSel">${all && can.manage() ? `<option value="">Semua member</option>` : ""}${S.members.filter(m => m.active)
   .map(m => `<option value="${m.id}" ${m.id === S.member ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>`;
 const weekNav = () => `<div class="datenav"><button data-act="wk" data-n="-7">‹</button><span class="wklbl">${dm(S.week)} – ${dm(addDays(S.week, 6))}</span><button data-act="wk" data-n="7">›</button>${S.week !== mondayOf(today()) ? `<button class="ghost sm" data-act="thiswk">Minggu ni</button>` : ""}</div>`;
 
@@ -348,7 +435,7 @@ function vToday() {
       h += `<h3>${esc(s.name)}</h3><div class="tlist">` + s.tasks.map(t => {
         const ok = isDone(t, d), late = !ok && d < T;
         return `<label class="trow ${ok ? "ok" : ""} ${late ? "late" : ""}"><input type="checkbox" data-chk="${t.id}" data-d="${d}" ${ok ? "checked" : ""}>
-          <span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}${late ? `<span class="chip bad">Tertinggal</span>` : ""}${link(t)}</label>`;
+          <span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}${late ? `<span class="chip bad">Tertinggal</span>` : ""}${ok ? `<span class="whotick">✓ ${esc(whoTxt(t, d))}</span>` : ""}${link(t)}</label>`;
       }).join("") + `</div>`;
     }
     h += `</div>`;
@@ -376,7 +463,7 @@ function vWeek() {
           if (!scheduled(t, d)) return `<td class="na"></td>`;
           const ok = isDone(t, d); b++; col[i][1]++; if (ok) { a++; col[i][0]++; }
           const cls = ok ? "ok" : d < T ? "miss" : "todo";
-          return `<td class="cell ${cls} ${d === T ? "now" : ""}" data-t="${t.id}" data-d="${d}" title="${DN[parse(d).getDay()]} ${dm(d)}">${ok ? "✓" : d < T ? "✗" : ""}</td>`;
+          return `<td class="cell ${cls} ${d === T ? "now" : ""}" data-t="${t.id}" data-d="${d}" title="${DN[parse(d).getDay()]} ${dm(d)}${ok ? " — ditick oleh " + esc(whoTxt(t, d)) : ""}">${ok ? "✓" : d < T ? "✗" : ""}</td>`;
         }).join("");
         h += `<tr><td class="tcol">${esc(t.title)} ${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""} ${link(t)}</td>${cells}<td class="cnt">${a}/${b}</td></tr>`;
       }
@@ -449,7 +536,7 @@ const memberForm = m => `<form class="card form" id="memberForm"><h3 style="marg
   <div class="row2"><label>Tarikh mula<input type="date" name="start_date" value="${m.start_date || ""}"></label><label>Tarikh tamat<input type="date" name="end_date" value="${m.end_date || ""}"></label></div>
   <label class="inline"><input type="checkbox" name="active" ${m.active !== false ? "checked" : ""}> Aktif</label>
   <div class="btns"><button type="submit">Simpan</button><button type="button" class="ghost" data-act="cancel">Batal</button>
-  ${m.id ? `<button type="button" class="ghost danger" data-act="delmember" data-m="${m.id}">Padam</button>` : ""}</div></form>`;
+  ${m.id && can.delMember() ? `<button type="button" class="ghost danger" data-act="delmember" data-m="${m.id}">Padam</button>` : ""}</div></form>`;
 const daysPick = sel => `<div class="days">${WEEK_ORDER.map(d => `<label><input type="checkbox" name="days" value="${d}" ${sel.includes(d) ? "checked" : ""}>${DS[d]}</label>`).join("")}</div>`;
 const secList = () => `<datalist id="secs">${[...new Set(S.tasks.map(t => t.section))].map(s => `<option value="${esc(s)}">`).join("")}</datalist>`;
 const taskForm = t => `<form class="form sub" id="taskForm"><h3 style="margin-top:0">${t.id ? "Edit" : "Tambah"} task</h3>
@@ -469,11 +556,54 @@ const bulkForm = () => `<form class="form sub" id="bulkForm"><h3 style="margin-t
   <label>Mula dikira dari<input type="date" name="start_date" value="${today()}"></label>
   <div class="btns"><button type="submit">Tambah</button><button type="button" class="ghost" data-act="cancel">Batal</button></div>${secList()}</form>`;
 
+// ---------- view: pengurusan pengguna (Owner & Admin sahaja) ----------
+function vUsers() {
+  const cnt = s => S.users.filter(u => s === "all" || u.status === s).length;
+  const list = S.users.filter(u => S.ufilter === "all" || u.status === S.ufilter);
+  const linked = new Map(S.users.filter(u => u.member_id).map(u => [u.member_id, u.id]));
+  let h = `<div class="card"><div class="tools"><h2 style="margin:0">Pengurusan Pengguna</h2><div class="spacer"></div>
+    <button class="ghost sm" data-act="reloadusers">↻ Muat semula</button></div>
+    <p class="mute" style="margin:8px 0 12px">Akaun baharu masuk sebagai <b>Pending</b>. Bila di-approve, role default ialah <b>Staff</b>.
+    Hubungkan akaun dengan rekod <b>Member</b> supaya staff nampak tugasan sendiri.</p>
+    <div class="filters">${["pending", "approved", "suspended", "rejected", "all"].map(s =>
+      `<button data-act="ufilter" data-s="${s}" class="${S.ufilter === s ? "on" : ""}">${s === "all" ? "Semua" : STATUS_LABEL[s]} (${cnt(s)})</button>`).join("")}</div></div>`;
+  if (!list.length) return h + `<div class="card empty">Tiada pengguna dalam kategori ini.</div>`;
+  h += `<div class="card scroll"><table class="tbl utbl" style="min-width:900px"><thead><tr><th>Nama</th><th>Email</th><th>Tarikh daftar</th><th>Status</th><th>Role</th><th>Member</th><th>Tindakan</th></tr></thead><tbody>`;
+  for (const u of list) {
+    const act = canActOn(u), self = u.id === ME.id;
+    const d = new Date(u.created_at);
+    const roleCell = (act && u.role !== "owner")
+      ? `<select data-role-for="${u.id}">${[...new Set([...roleOptions(), u.role])].map(r => `<option value="${r}" ${r === u.role ? "selected" : ""} ${roleOptions().includes(r) ? "" : "disabled"}>${ROLE_LABEL[r]}</option>`).join("")}</select>`
+      : `<span class="rb ${u.role}">${ROLE_LABEL[u.role]}</span>`;
+    const canLink = act || self;
+    const mName = u.member_id ? (S.members.find(m => m.id === u.member_id)?.name || "(member dipadam)") : "";
+    const memberCell = canLink
+      ? `<select data-link-for="${u.id}"><option value="">— Tiada —</option>${S.members.filter(m => !linked.has(m.id) || linked.get(m.id) === u.id)
+          .map(m => `<option value="${m.id}" ${m.id === u.member_id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>
+         ${u.member_id ? "" : `<button class="ghost sm" data-act="mkmember" data-u="${u.id}" title="Cipta rekod member baharu guna nama akaun ini">+ Cipta</button>`}`
+      : esc(mName) || `<span class="mute">—</span>`;
+    let btns = "";
+    if (act) {
+      if (u.status === "pending") btns = `<button class="sm" data-act="ustatus" data-u="${u.id}" data-s="approved">Approve</button> <button class="ghost sm danger" data-act="ustatus" data-u="${u.id}" data-s="rejected">Reject</button>`;
+      else if (u.status === "approved") btns = `<button class="ghost sm danger" data-act="ustatus" data-u="${u.id}" data-s="suspended">Suspend</button>`;
+      else if (u.status === "rejected") btns = `<button class="sm" data-act="ustatus" data-u="${u.id}" data-s="approved">Approve</button>`;
+      else if (u.status === "suspended") btns = `<button class="sm" data-act="ustatus" data-u="${u.id}" data-s="approved">Aktifkan semula</button>`;
+    } else btns = `<span class="mute">${self ? "Akaun anda" : u.role === "owner" ? "Dilindungi" : "Tiada kebenaran"}</span>`;
+    h += `<tr><td><b>${esc(u.full_name)}</b></td><td>${esc(u.email)}</td><td>${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}</td>
+      <td><span class="rb ${u.status}">${STATUS_LABEL[u.status]}</span></td><td>${roleCell}</td><td>${memberCell}</td><td style="white-space:nowrap">${btns}</td></tr>`;
+  }
+  return h + `</tbody></table></div>`;
+}
+
 // ---------- render ----------
+const TAB_OK = { today: () => true, week: () => true, summary: () => true, manage: () => can.manage(), users: () => can.users() };
 function render() {
-  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
-  const v = { today: vToday, week: vWeek, summary: vSummary, manage: vManage }[S.tab];
-  $("#app").innerHTML = (S.members.length || S.tab === "manage") ? v()
+  if (!TAB_OK[S.tab]()) S.tab = "today";
+  document.querySelectorAll("nav button").forEach(b => { b.classList.toggle("on", b.dataset.tab === S.tab); b.hidden = !TAB_OK[b.dataset.tab](); });
+  const v = { today: vToday, week: vWeek, summary: vSummary, manage: vManage, users: vUsers }[S.tab];
+  if (!can.manage() && !ME.member_id && S.tab !== "users")
+    return ($("#app").innerHTML = `<div class="card empty">Akaun anda dah diluluskan, tapi belum dihubungkan dengan rekod <b>Member</b>.<br>Minta Owner/Admin hubungkan akaun anda di tab Pengurusan Pengguna.</div>`);
+  $("#app").innerHTML = (S.members.length || S.tab === "manage" || S.tab === "users") ? v()
     : `<div class="card empty">Belum ada member. Pergi tab <b>⚙️ Urus Team &amp; Task</b> untuk mula.</div>`;
 }
 function toast(msg, bad) {
@@ -482,20 +612,44 @@ function toast(msg, bad) {
 }
 async function toggle(tid, d, on) {
   const k = tid + "|" + d;
-  on ? S.done.add(k) : S.done.delete(k); render();
+  const prev = S.info.get(k);
+  if (on) { S.done.add(k); S.info.set(k, { by: ME.id, at: new Date().toISOString() }); } else { S.done.delete(k); S.info.delete(k); }
+  render();
   try { await api.setCheck(tid, d, on); }
-  catch (e) { on ? S.done.delete(k) : S.done.add(k); render(); toast("Gagal simpan: " + e.message, 1); }
+  catch (e) {
+    if (on) { S.done.delete(k); S.info.delete(k); } else { S.done.add(k); if (prev) S.info.set(k, prev); }
+    render(); toast("Gagal simpan: " + errMsg(e), 1);
+  }
 }
 const closeForms = () => { S.editTask = null; S.editMember = null; S.bulk = false; };
 
 // ---------- events ----------
+async function reloadUsers() {
+  [S.users, S.members] = await Promise.all([api.users(), api.members()]); sortAll();
+  const mine = S.users.find(u => u.id === ME.id); if (mine) ME.member_id = mine.member_id;
+}
 document.addEventListener("click", async e => {
   const tab = e.target.closest("[data-tab]");
-  if (tab) { S.tab = tab.dataset.tab; closeForms(); return render(); }
+  if (tab) {
+    S.tab = tab.dataset.tab; closeForms();
+    if (S.tab === "users" && can.users()) { $("#app").innerHTML = `<div class="card empty">Loading…</div>`; try { await reloadUsers(); } catch (err) { toast(errMsg(err), 1); } }
+    return render();
+  }
   const cell = e.target.closest("td.cell");
   if (cell) return toggle(cell.dataset.t, cell.dataset.d, !S.done.has(cell.dataset.t + "|" + cell.dataset.d));
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act, n = +b.dataset.n;
+  // --- skrin log masuk / daftar / lupa kata laluan ---
+  if (a === "auth") { e.preventDefault(); return authView(b.dataset.mode); }
+  if (a === "logout" || a === "cancelreset") { clearRecovery(); if (sb) await sb.auth.signOut(); return location.replace(location.pathname); }
+  if (a === "recheck") return location.reload();
+  if (a === "resend") {
+    const email = b.dataset.email;
+    const { error } = await sb.auth.resend({ type: "signup", email, options: { emailRedirectTo: SITE_URL } });
+    return authView("login", error && isRateLimit(error)
+      ? { bad: 1, html: "Terlalu banyak permintaan email. Sila tunggu beberapa minit dan cuba lagi." }
+      : { html: "Jika akaun ini wujud dan belum disahkan, email pengesahan baharu telah dihantar. Semak Inbox &amp; folder Spam." });
+  }
   try {
     if (a === "day") { S.date = addDays(S.date, n); await ensure(addDays(S.date, -1), S.date); }
     else if (a === "gotoday") S.date = today();
@@ -520,9 +674,22 @@ document.addEventListener("click", async e => {
       await api.delMember(m.id); S.members = S.members.filter(x => x.id !== m.id); S.tasks = S.tasks.filter(t => t.member_id !== m.id);
       closeForms(); toast("Member dipadam");
     }
-    else if (a === "logout") { await sb.auth.signOut(); return location.reload(); }
+    // --- pengurusan pengguna ---
+    else if (a === "ufilter") S.ufilter = b.dataset.s;
+    else if (a === "reloadusers") { await reloadUsers(); toast("Senarai dikemas kini"); }
+    else if (a === "ustatus") {
+      const u = S.users.find(x => x.id === b.dataset.u), s = b.dataset.s;
+      const word = { approved: "Approve", rejected: "Reject", suspended: "Suspend" }[s];
+      if (s !== "approved" && !confirm(`${word} akaun ${u.full_name}? Pengguna ini tidak akan dapat mengakses sistem.`)) return;
+      await api.setStatus(u.id, s); await reloadUsers(); toast(`${u.full_name}: ${STATUS_LABEL[s]}`);
+    }
+    else if (a === "mkmember") {
+      const u = S.users.find(x => x.id === b.dataset.u);
+      if (!confirm(`Cipta rekod member baharu "${u.full_name}" dan hubungkan dengan akaun ini?`)) return;
+      await api.createMemberFor(u.id); await reloadUsers(); [S.tasks] = [await api.tasks()]; sortAll(); toast("Member dicipta & dihubungkan");
+    }
     render();
-  } catch (err) { toast(err.message || String(err), 1); }
+  } catch (err) { toast(errMsg(err), 1); render(); }
 });
 
 document.addEventListener("change", async e => {
@@ -531,18 +698,24 @@ document.addEventListener("change", async e => {
   if (el.id === "memSel") { S.member = el.value; render(); }
   if (el.id === "dateIn" && el.value) { S.date = el.value; await ensure(addDays(S.date, -1), S.date); render(); }
   if (el.id === "staleIn") { S.stale = Math.max(1, +el.value || 1); render(); }
+  try {
+    if (el.dataset.roleFor) {
+      const u = S.users.find(x => x.id === el.dataset.roleFor);
+      if (!confirm(`Tukar role ${u.full_name} kepada ${ROLE_LABEL[el.value]}?`)) return render();
+      await api.setRole(u.id, el.value); await reloadUsers(); toast("Role dikemas kini"); render();
+    }
+    if (el.dataset.linkFor) {
+      await api.linkMember(el.dataset.linkFor, el.value || null); await reloadUsers(); toast(el.value ? "Akaun dihubungkan dengan member" : "Hubungan dibuang"); render();
+    }
+  } catch (err) { toast(errMsg(err), 1); render(); }
 });
 
 document.addEventListener("submit", async e => {
   e.preventDefault();
   const f = e.target, fd = new FormData(f), days = fd.getAll("days").map(Number);
   const val = k => (fd.get(k) || "").toString().trim();
+  if (["loginForm", "registerForm", "forgotForm", "resetForm"].includes(f.id)) return authSubmit(f.id, val, fd, f);
   try {
-    if (f.id === "loginForm") {
-      const { error } = await sb.auth.signInWithPassword({ email: val("email"), password: fd.get("pw") });
-      if (error) return toast("Log masuk gagal: " + error.message, 1);
-      $("nav").hidden = false; return start();
-    }
     if (f.id === "memberForm") {
       const m = { ...S.editMember, name: val("name"), role: val("role"), start_date: val("start_date") || null, end_date: val("end_date") || null, active: fd.has("active") };
       const saved = await api.saveMember(m); upd(S.members, saved); sortAll();
@@ -566,25 +739,186 @@ document.addEventListener("submit", async e => {
       const saved = await api.insertTasks(arr); S.tasks.push(...saved); sortAll(); closeForms(); toast(`${saved.length} task ditambah`);
     }
     render();
-  } catch (err) { toast(err.message || String(err), 1); }
+  } catch (err) { toast(errMsg(err), 1); }
 });
+
+// =====================================================================
+//  AKAUN: log masuk, daftar, lupa & tetap semula kata laluan
+//  (semua guna Supabase Auth; kata laluan TIDAK disimpan oleh website ini)
+// =====================================================================
+const isRateLimit = e => e?.status === 429 || /rate limit|too many/i.test(e?.message || "") || /over_.*rate_limit/.test(e?.code || "");
+const isEmailSendErr = e => /email_address_not_authorized|sending|smtp/i.test((e?.code || "") + " " + (e?.message || ""));
+const RATE_MSG = "Terlalu banyak permintaan dalam masa singkat. Sila tunggu beberapa minit, kemudian cuba lagi.";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const setRecovery = () => { RECOVERY = true; try { sessionStorage.setItem("trb_recovery", "1"); } catch {} };
+const clearRecovery = () => { RECOVERY = false; try { sessionStorage.removeItem("trb_recovery"); } catch {} };
+
+function hideChrome() { $("nav").hidden = true; $("#logout").hidden = true; $("#who").innerHTML = ""; }
+function authView(mode, note) {
+  hideChrome();
+  const n = note ? `<div class="note ${note.bad ? "bad" : note.info ? "info" : ""}">${note.html}</div>` : "";
+  const forms = {
+    login: `<form class="card form login" id="loginForm"><h2>Log masuk</h2>${n}
+      <label>Email<input type="email" name="email" required autocomplete="email"></label>
+      <label>Kata laluan<input type="password" name="pw" required autocomplete="current-password"></label>
+      <div class="btns"><button type="submit">Masuk</button><button type="button" class="ghost" data-act="auth" data-mode="register">Daftar Akaun</button></div>
+      <div class="authfoot"><button type="button" class="linkbtn" data-act="auth" data-mode="forgot">Lupa Kata Laluan?</button></div></form>`,
+    register: `<form class="card form login" id="registerForm"><h2>Daftar Akaun</h2>${n}
+      <p class="mute" style="margin:0">Akaun baharu perlu diluluskan oleh Owner/Admin sebelum boleh digunakan.</p>
+      <label>Nama penuh<input name="name" required minlength="2" maxlength="120" autocomplete="name"></label>
+      <label>Email (Gmail atau email kerja)<input type="email" name="email" required autocomplete="email"></label>
+      <label>Kata laluan (minimum 8 aksara)<input type="password" name="pw" required minlength="8" autocomplete="new-password"></label>
+      <label>Sahkan kata laluan<input type="password" name="pw2" required minlength="8" autocomplete="new-password"></label>
+      <div class="btns"><button type="submit">Daftar</button><button type="button" class="ghost" data-act="auth" data-mode="login">Kembali ke log masuk</button></div></form>`,
+    forgot: `<form class="card form login" id="forgotForm"><h2>Lupa Kata Laluan</h2>${n}
+      <p class="mute" style="margin:0">Masukkan email akaun anda. Kami akan hantar link untuk tetapkan kata laluan baharu.</p>
+      <label>Email<input type="email" name="email" required autocomplete="email"></label>
+      <div class="btns"><button type="submit">Hantar Link Reset Password</button><button type="button" class="ghost" data-act="auth" data-mode="login">Kembali</button></div></form>`,
+    reset: `<form class="card form login" id="resetForm"><h2>Tetapkan Kata Laluan Baharu</h2>${n}
+      <label>Kata laluan baharu (minimum 8 aksara)<input type="password" name="pw" required minlength="8" autocomplete="new-password"></label>
+      <label>Sahkan kata laluan baharu<input type="password" name="pw2" required minlength="8" autocomplete="new-password"></label>
+      <div class="btns"><button type="submit">Simpan Kata Laluan</button><button type="button" class="ghost" data-act="cancelreset">Batal</button></div></form>`,
+    info: `<div class="card form login">${n}<div class="btns"><button type="button" data-act="auth" data-mode="login">Ke halaman log masuk</button></div></div>`,
+  };
+  $("#app").innerHTML = forms[mode] || forms.login;
+}
+
+function statusView(p) {
+  hideChrome(); $("#logout").hidden = false;
+  const msg = {
+    pending: `<h2>⏳ Menunggu kelulusan</h2><div class="note info">Pendaftaran anda berjaya. Sila tunggu kelulusan admin.<br>Anda akan dapat akses selepas Owner/Admin meluluskan akaun ini.</div>`,
+    rejected: `<h2>Permohonan ditolak</h2><div class="note bad">Permohonan akaun anda tidak diluluskan. Hubungi admin jika ini satu kesilapan.</div>`,
+    suspended: `<h2>Akaun digantung</h2><div class="note bad">Akaun anda telah digantung dan tidak boleh mengakses sistem buat masa ini. Hubungi admin.</div>`,
+  }[p.status] || `<h2>Akaun belum aktif</h2><div class="note bad">Profil akaun tidak dijumpai. Hubungi admin.</div>`;
+  $("#app").innerHTML = `<div class="card form login">${msg}
+    <p class="mute" style="margin:0">Log masuk sebagai <b>${esc(p.email || "")}</b></p>
+    <label>User ID anda (untuk rujukan admin)<span class="uid">${esc(p.id)}</span></label>
+    <div class="btns"><button type="button" data-act="recheck">Semak semula</button><button type="button" class="ghost" data-act="logout">Log keluar</button></div></div>`;
+}
+
+async function enter(user) {
+  let p;
+  try { p = await api.myProfile(user.id); }
+  catch (e) { return authView("login", { bad: 1, html: "Gagal membaca profil akaun: " + esc(e.message) }); }
+  if (!p || p.status !== "approved") return statusView(p || { id: user.id, email: user.email, status: "missing" });
+  ME = p;
+  $("nav").hidden = false; $("#logout").hidden = DEMO;
+  $("#who").innerHTML = `${esc(ME.full_name)} <span class="rb ${ME.role}">${ROLE_LABEL[ME.role]}</span>`;
+  return start();
+}
+
+async function authSubmit(id, val, fd, form) {
+  const btn = form.querySelector('button[type="submit"]'); if (btn) btn.disabled = true;
+  try {
+    if (id === "loginForm") {
+      const email = val("email");
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: fd.get("pw") });
+      if (error) {
+        if (/not confirmed/i.test(error.message) || error.code === "email_not_confirmed")
+          return authView("login", { bad: 1, html: `Email anda belum disahkan. Sila klik link dalam email pengesahan (semak folder Spam).<br><button type="button" class="linkbtn" data-act="resend" data-email="${esc(email)}">Hantar semula email pengesahan</button>` });
+        if (isRateLimit(error)) return authView("login", { bad: 1, html: RATE_MSG });
+        return authView("login", { bad: 1, html: "Email atau kata laluan salah." });
+      }
+      return enter(data.user);
+    }
+    if (id === "registerForm") {
+      const name = val("name"), email = val("email"), pw = fd.get("pw"), pw2 = fd.get("pw2");
+      if (name.length < 2) return authView("register", { bad: 1, html: "Sila masukkan nama penuh." });
+      if (!EMAIL_RE.test(email)) return authView("register", { bad: 1, html: "Format email tidak sah." });
+      if (pw.length < 8) return authView("register", { bad: 1, html: "Kata laluan mesti sekurang-kurangnya 8 aksara." });
+      if (pw !== pw2) return authView("register", { bad: 1, html: "Kata laluan dan pengesahan kata laluan tidak sama." });
+      // NOTA: hanya nama dihantar. Role & status ditetapkan oleh database (staff + pending), bukan browser.
+      const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { full_name: name }, emailRedirectTo: SITE_URL } });
+      if (error) {
+        if (isRateLimit(error)) return authView("register", { bad: 1, html: RATE_MSG });
+        if (/weak|password/i.test(error.code || "") && !/already/i.test(error.message))
+          return authView("register", { bad: 1, html: "Kata laluan terlalu lemah. Guna gabungan huruf besar, huruf kecil dan nombor." });
+        if (isEmailSendErr(error))
+          return authView("register", { bad: 1, html: "Sistem email belum disediakan sepenuhnya, jadi email pengesahan tidak dapat dihantar. Sila hubungi admin." });
+        if (!/already|registered|exists/i.test(error.message))
+          return authView("register", { bad: 1, html: "Pendaftaran gagal: " + esc(error.message) });
+        // email dah wujud → paparkan mesej sama (tidak dedahkan email berdaftar)
+      }
+      if (data?.session) await sb.auth.signOut();
+      const needVerify = !data?.session;
+      return authView("info", { html: needVerify
+        ? `<b>Pendaftaran berjaya.</b> Sila tunggu kelulusan admin.<br><br>📧 Langkah seterusnya: buka email <b>${esc(email)}</b> dan klik link pengesahan (semak juga folder Spam/Promotions). Selepas itu, admin akan meluluskan akaun anda.`
+        : `<b>Pendaftaran berjaya.</b> Sila tunggu kelulusan admin.<br>Anda boleh log masuk untuk menyemak status akaun.` });
+    }
+    if (id === "forgotForm") {
+      const email = val("email");
+      if (!EMAIL_RE.test(email)) return authView("forgot", { bad: 1, html: "Format email tidak sah." });
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: SITE_URL });
+      if (error && isRateLimit(error)) return authView("forgot", { bad: 1, html: RATE_MSG });
+      // Mesej yang SAMA sama ada email wujud atau tidak
+      return authView("info", { html: `Jika email <b>${esc(email)}</b> berdaftar dalam sistem, link untuk menetapkan kata laluan baharu telah dihantar.<br><br>Semak Inbox &amp; folder Spam. Link hanya sah untuk tempoh terhad dan sekali guna.<br>Jika tiada email dalam 10 minit, hubungi admin.` });
+    }
+    if (id === "resetForm") {
+      const pw = fd.get("pw"), pw2 = fd.get("pw2");
+      if (pw.length < 8) return authView("reset", { bad: 1, html: "Kata laluan mesti sekurang-kurangnya 8 aksara." });
+      if (pw !== pw2) return authView("reset", { bad: 1, html: "Kata laluan dan pengesahan tidak sama." });
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) { clearRecovery(); return authView("forgot", { bad: 1, html: "Link reset tidak sah atau sudah tamat tempoh. Sila minta link baharu." }); }
+      const { error } = await sb.auth.updateUser({ password: pw });
+      if (error) {
+        if (error.code === "same_password") return authView("reset", { bad: 1, html: "Kata laluan baharu mesti berbeza daripada kata laluan lama." });
+        if (error.code === "weak_password") return authView("reset", { bad: 1, html: "Kata laluan terlalu lemah. Guna gabungan huruf besar, huruf kecil dan nombor." });
+        if (isRateLimit(error)) return authView("reset", { bad: 1, html: RATE_MSG });
+        if (/session|jwt|expired|token/i.test(error.message)) { clearRecovery(); await sb.auth.signOut(); return authView("forgot", { bad: 1, html: "Sesi reset sudah tamat tempoh. Sila minta link baharu." }); }
+        return authView("reset", { bad: 1, html: "Gagal menyimpan: " + esc(error.message) });
+      }
+      clearRecovery(); await sb.auth.signOut();
+      return authView("login", { html: "✅ Kata laluan berjaya ditukar. Sila log masuk dengan kata laluan baharu." });
+    }
+  } catch (err) {
+    authView(id === "loginForm" ? "login" : id === "registerForm" ? "register" : id === "resetForm" ? "reset" : "forgot",
+      { bad: 1, html: isRateLimit(err) ? RATE_MSG : "Ralat rangkaian. Sila cuba lagi." });
+  } finally { if (btn) btn.disabled = false; }
+}
 
 // ---------- mula ----------
 async function start() {
   $("#app").innerHTML = `<div class="card empty">Loading…</div>`;
-  try { await loadAll(); $("#logout").hidden = DEMO; render(); }
-  catch (e) { $("#app").innerHTML = `<div class="card empty">Ralat: ${esc(e.message)}</div>`; }
+  try { await loadAll(); render(); }
+  catch (e) { $("#app").innerHTML = `<div class="card empty">Ralat: ${esc(errMsg(e))}</div>`; }
 }
 async function boot() {
-  if (DEMO) { api = demoApi(); $("#demo").hidden = false; return start(); }
+  if (DEMO) {
+    api = demoApi(); $("#demo").hidden = false;
+    window.__trbDemo = { authView, statusView };   // untuk pratonton skrin akaun dalam mod demo
+    return enter({ id: "demo-owner" });
+  }
+  // Baca parameter dari link email SEBELUM Supabase memprosesnya
+  const hp = new URLSearchParams(location.hash.slice(1)), qp = new URLSearchParams(location.search);
+  const linkType = hp.get("type") || qp.get("type");
+  const linkErr = hp.get("error_code") || qp.get("error_code") || hp.get("error") || qp.get("error");
+  try { RECOVERY = sessionStorage.getItem("trb_recovery") === "1"; } catch {}
+  if (linkType === "recovery") setRecovery();
+
   const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); api = sbApi(sb);
+  sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { flowType: "implicit", detectSessionInUrl: true, persistSession: true, autoRefreshToken: true } });
+  api = sbApi(sb);
+  let booted = false;
+  sb.auth.onAuthStateChange(ev => { if (ev === "PASSWORD_RECOVERY") { setRecovery(); if (booted) authView("reset"); } });
+
   const { data: { session } } = await sb.auth.getSession();
-  if (session) return start();
-  $("nav").hidden = true;
-  $("#app").innerHTML = `<form class="card form login" id="loginForm"><h2>Log masuk</h2>
-    <label>Emel<input type="email" name="email" required></label><label>Kata laluan<input type="password" name="pw" required></label>
-    <div class="btns"><button type="submit">Masuk</button></div></form>`;
+  booted = true;
+  if (location.hash || location.search) history.replaceState(null, "", location.pathname);   // buang token dari URL
+
+  if (linkErr) {
+    const expired = /expired|otp/i.test(linkErr) || /expired/i.test(hp.get("error_description") || "");
+    const msg = expired ? "Link ini sudah tamat tempoh atau telah digunakan." : "Link ini tidak sah.";
+    if (RECOVERY || linkType === "recovery") { clearRecovery(); return authView("forgot", { bad: 1, html: msg + " Sila minta link reset baharu." }); }
+    return authView("login", { bad: 1, html: msg + " Sila cuba log masuk, atau minta link baharu." });
+  }
+  if (RECOVERY) {
+    if (session) return authView("reset");   // JANGAN terus ke dashboard
+    clearRecovery();
+    return authView("forgot", { bad: 1, html: "Link reset tidak sah atau sudah tamat tempoh. Sila minta link baharu." });
+  }
+  if (!session) return authView("login");
+  if (linkType === "signup") toast("Email berjaya disahkan.");
+  return enter(session.user);
 }
 boot();
 </script>
