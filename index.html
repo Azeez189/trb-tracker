@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TRB Task Tracker</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mute:#6b7280;--line:#e5e7eb;--brand:#c2410c;--brandbg:#fff1e8;--ok:#15803d;--okbg:#dcfce7;--bad:#b91c1c;--badbg:#fee2e2;--warn:#b45309;--warnbg:#fef3c7}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.bar{max-width:1240px;margin:auto;padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.logo{font-weight:800;font-size:16px;margin-right:8px}.logo span{color:var(--brand)}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{border:0;background:none;padding:8px 12px;border-radius:8px;cursor:pointer;font:inherit;color:var(--mute)}
+nav button.on{background:var(--brandbg);color:var(--brand);font-weight:600}
+.spacer{flex:1}
+#demo{background:var(--warnbg);color:var(--warn);text-align:center;padding:6px 12px;font-size:13px}
+main{max-width:1240px;margin:auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.empty{text-align:center;color:var(--mute);padding:32px}
+h2{font-size:17px;margin:0 0 12px}h2 small{font-weight:400;color:var(--mute);font-size:13px;margin-left:6px}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);margin:16px 0 6px}
+.mute{color:var(--mute)}
+.tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+select,input,textarea{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+button{font:inherit;cursor:pointer;border:1px solid var(--brand);background:var(--brand);color:#fff;padding:7px 12px;border-radius:8px}
+button.ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+button.sm{padding:5px 10px;font-size:13px}
+button.danger{color:var(--bad)}
+.datenav{display:flex;gap:6px;align-items:center}
+.datenav>button{background:#fff;color:var(--ink);border-color:var(--line);min-width:34px}
+.wklbl{font-weight:600;min-width:110px;text-align:center}
+.dayname{font-weight:600}
+.prog{margin-top:14px}.progtxt{margin-bottom:6px}
+.pbar{height:8px;background:#eef0f3;border-radius:99px;overflow:hidden}.pbar i{display:block;height:100%;background:var(--ok);border-radius:99px}
+.tlist{display:flex;flex-direction:column;gap:4px}
+.trow{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.trow:hover{background:#fafafa}
+.trow input{width:18px;height:18px;accent-color:var(--ok);margin:0}
+.trow .tt{flex:1}
+.trow.ok{background:var(--okbg);border-color:#bbf7d0}.trow.ok .tt{text-decoration:line-through;color:var(--mute)}
+.trow.late{border-color:#fecaca}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:#f1f3f5;color:var(--mute);white-space:nowrap}
+.chip.bad{background:var(--badbg);color:var(--bad)}
+.badge{font-size:12px;padding:2px 9px;border-radius:99px;vertical-align:middle}
+.badge.bad{background:var(--badbg);color:var(--bad)}.badge.warn{background:var(--warnbg);color:var(--warn)}
+.lnk{font-size:12px;color:var(--brand);text-decoration:none;white-space:nowrap}
+.legend{display:flex;gap:14px;margin-top:12px;font-size:12px;color:var(--mute);flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-3px;margin-right:4px;border:1px solid var(--line)}
+.scroll{overflow-x:auto;padding:0}
+table.grid{border-collapse:collapse;width:100%;min-width:760px}
+.grid th,.grid td{border-bottom:1px solid var(--line);padding:6px;text-align:center;font-size:13px}
+.grid th{background:#fafafa;font-weight:600;position:sticky;top:0}
+.grid th.today{background:var(--brandbg);color:var(--brand)}
+.grid .tcol{text-align:left;position:sticky;left:0;background:#fff;min-width:260px;border-right:1px solid var(--line)}
+.grid thead .tcol{background:#fafafa}
+.grid tr.mem td{background:#1d2330;color:#fff;text-align:left;font-weight:700;position:sticky;left:0}
+.grid tr.sec td{background:#f3f4f6;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--mute)}
+.grid td.cell{cursor:pointer;width:64px;font-weight:700;user-select:none}
+.grid td.ok{background:var(--okbg);color:var(--ok)}
+.grid td.miss{background:var(--badbg);color:var(--bad)}
+.grid td.todo:hover{background:#f3f4f6}
+.grid td.now{box-shadow:inset 2px 0 0 var(--brand),inset -2px 0 0 var(--brand)}
+.grid td.na{background:repeating-linear-gradient(45deg,#fafafa,#fafafa 4px,#f1f2f4 4px,#f1f2f4 8px)}
+.grid td.cnt{color:var(--mute);white-space:nowrap}
+.grid tfoot td{font-weight:600;background:#fafafa}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px;margin-bottom:16px}
+.cards .card{margin:0}
+.mtop{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.pct{font-size:26px;font-weight:800}.pct.good{color:var(--ok)}.pct.mid{color:var(--warn)}.pct.low{color:var(--bad)}
+.nums{display:flex;gap:14px;margin:10px 0 6px;font-size:13px}.nums .bad{color:var(--bad)}
+.trend{font-size:12px;margin-bottom:10px}
+table.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl th{font-size:12px;color:var(--mute);font-weight:600}
+.tbl td.r{text-align:right;white-space:nowrap}
+.tbl tr.off td{opacity:.45}
+.tbl.fix{table-layout:fixed}.tbl.fix td:nth-child(2){width:120px}.tbl.fix td:nth-child(3){width:150px}.tbl.fix td:nth-child(4){width:150px}
+input.num{width:60px;padding:3px 6px}
+.mgrid{display:grid;grid-template-columns:300px 1fr;gap:16px}
+@media(max-width:820px){.mgrid{grid-template-columns:1fr}}
+.mlist{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.mitem{background:#fff;color:var(--ink);border:1px solid var(--line);text-align:left;display:flex;flex-direction:column;gap:2px}
+.mitem.on{border-color:var(--brand);background:var(--brandbg)}
+.form{display:flex;flex-direction:column;gap:10px}
+.form.sub{border:1px dashed var(--line);border-radius:10px;padding:14px;margin:12px 0;background:#fcfcfd}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute)}
+.form label.inline{flex-direction:row;align-items:center;gap:8px;color:var(--ink)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.days{display:flex;gap:6px;flex-wrap:wrap}
+.days label{flex-direction:row;align-items:center;gap:4px;border:1px solid var(--line);padding:5px 9px;border-radius:8px;color:var(--ink);cursor:pointer}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.login{max-width:360px;margin:60px auto}
+code{background:#f1f3f5;padding:1px 5px;border-radius:4px}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);background:#1d2330;color:#fff;padding:10px 16px;border-radius:10px;transition:.25s;z-index:50;opacity:0}
+#toast.show{transform:translateX(-50%);opacity:1}#toast.bad{background:var(--bad)}
+</style>
+</head>
+<body>
+<div id="demo" hidden>Mod demo: data contoh, tak disimpan. Isi https://oyvsmprmustmsirfdsqu.supabase.co/rest/v1/ &amp; sb_publishable_H0oVuPmAef-Zi0ZXfyonIw_2t1UmOxi dalam index.html untuk guna betul-betul.</div>
+<header><div class="bar">
+  <div class="logo">TRB <span>Task Tracker</span></div>
+  <nav>
+    <button data-tab="today">✅ Checklist Harian</button>
+    <button data-tab="week">📅 Grid Minggu</button>
+    <button data-tab="summary">📊 Ringkasan</button>
+    <button data-tab="manage">⚙️ Urus Team &amp; Task</button>
+  </nav>
+  <div class="spacer"></div>
+  <button id="logout" class="ghost sm" data-act="logout" hidden>Log keluar</button>
+</div></header>
+<main id="app"><div class="card empty">Loading…</div></main>
+<div id="toast"></div>
+
+<script type="module">
+// =====================================================================
+//  TETAPAN — isi dua baris ni dengan maklumat projek Supabase abang
+//  (Supabase → Project Settings → API). Kalau kosong = mod demo.
+// =====================================================================
+const SUPABASE_URL = "";       // contoh: "https://abcdxyz.supabase.co"
+const SUPABASE_ANON_KEY = "";  // "anon public" key
+// =====================================================================
+
+const DEMO = !SUPABASE_URL || !SUPABASE_ANON_KEY;
+
+// ---------- helper tarikh ----------
+const pad = n => String(n).padStart(2, "0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return ymd(d); };
+const today = () => ymd(new Date());
+const mondayOf = s => addDays(s, -((parse(s).getDay() + 6) % 7));
+const dm = s => { const d = parse(s); return `${d.getDate()}/${d.getMonth() + 1}`; };
+const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
+const DN = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
+const DS = ["Ahd", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab"];
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now());
+const $ = s => document.querySelector(s);
+const safeUrl = u => (/^https?:\/\//i.test(u) ? u : "https://" + u);
+
+// ---------- data layer: Supabase ----------
+function sbApi(sb) {
+  const ok = ({ data, error }) => { if (error) throw error; return data; };
+  const save = async (tb, o) => {
+    const { id, created_at, ...r } = o;
+    return ok(id ? await sb.from(tb).update(r).eq("id", id).select().single()
+                 : await sb.from(tb).insert(r).select().single());
+  };
+  return {
+    members: async () => ok(await sb.from("members").select("*").order("name")),
+    tasks: async () => ok(await sb.from("tasks").select("*").order("sort").order("created_at")),
+    checks: async (f, t) => {
+      let out = [];
+      for (let i = 0; ; i += 1000) {
+        const d = ok(await sb.from("checks").select("task_id,date").gte("date", f).lte("date", t)
+          .order("date").order("task_id").range(i, i + 999));
+        out = out.concat(d);
+        if (d.length < 1000) return out;
+      }
+    },
+    saveMember: m => save("members", m),
+    delMember: async id => ok(await sb.from("members").delete().eq("id", id)),
+    saveTask: t => save("tasks", t),
+    insertTasks: async arr => ok(await sb.from("tasks").insert(arr).select()),
+    delTask: async id => ok(await sb.from("tasks").delete().eq("id", id)),
+    setCheck: async (task_id, date, on) => ok(on
+      ? await sb.from("checks").upsert({ task_id, date }, { onConflict: "task_id,date", ignoreDuplicates: true })
+      : await sb.from("checks").delete().eq("task_id", task_id).eq("date", date)),
+  };
+}
+
+// ---------- data layer: demo (dalam memori) ----------
+function demoApi() {
+  const st = seed();
+  const upsert = (arr, o) => {
+    if (o.id) { const x = arr.find(y => y.id === o.id); Object.assign(x, o); return { ...x }; }
+    const n = { ...o, id: uid(), created_at: new Date().toISOString() }; arr.push(n); return { ...n };
+  };
+  return {
+    members: async () => st.members.map(x => ({ ...x })),
+    tasks: async () => st.tasks.map(x => ({ ...x })),
+    checks: async (f, t) => [...st.checks].map(k => { const [task_id, date] = k.split("|"); return { task_id, date }; })
+      .filter(r => r.date >= f && r.date <= t),
+    saveMember: async m => upsert(st.members, m),
+    delMember: async id => { st.members = st.members.filter(x => x.id !== id); st.tasks = st.tasks.filter(t => t.member_id !== id); },
+    saveTask: async t => upsert(st.tasks, t),
+    insertTasks: async arr => arr.map(t => upsert(st.tasks, t)),
+    delTask: async id => { st.tasks = st.tasks.filter(x => x.id !== id); },
+    setCheck: async (task, date, on) => { const k = task + "|" + date; on ? st.checks.add(k) : st.checks.delete(k); },
+  };
+}
+
+function seed() {
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const T = today();
+  const m1 = { id: uid(), name: "Muhammad Haziq Hakimi", role: "Admin Page & Content", start_date: addDays(T, -62), end_date: addDays(T, 50), active: true };
+  const m2 = { id: uid(), name: "Ain", role: "Live Host", start_date: addDays(T, -45), end_date: null, active: true };
+  const m3 = { id: uid(), name: "Hafiy", role: "Affiliate Shopee", start_date: addDays(T, -45), end_date: null, active: true };
+  const tasks = []; let n = 0;
+  const add = (m, section, title, o = {}) => tasks.push({ id: uid(), member_id: m.id, section, title, link: o.link || "", time: o.time || "",
+    days: o.days || [1, 2, 3, 4, 5, 6], sort: n++, active: true, start_date: m.start_date });
+  ["Cinta Suami Isteri", "Hamil Dalam 3 Bulan", "Kelab Soal Jawab Ibu & Bakal Ibu Comel", "Kelab Ikhtiar Hamil", "Cerita Cinta Halal",
+   "Kelab Wanita Ibu Isteri Malaysia", "Dapur Simple Viral", "Bahagia Itu Kita", "Cerita Dalam Rumah", "Cinta Sampai Syurga"]
+    .forEach(t => add(m1, "Posting Page 1:00 PM", t, { time: "1:00 PM" }));
+  ["Cinta Suami Isteri", "Rumahtangga Bahagia Selamanya", "Hamil Dalam 3 Bulan", "Cahaya Mata", "Suami Isteri Wanita Ibu Bahagia",
+   "Saya Sayang Suami Saya", "Resepi Viral", "Baby Comel", "Dapur Santai", "Realiti Kehidupan", "Pejuang 2 Garis", "Pelukan Si Kecil"]
+    .forEach(t => add(m1, "Story Khind JR BP10", t));
+  ["Cerita Cinta Halal", "Kelab Soal Jawab Ibu & Bakal Ibu Comel", "Kelab Wanita Ibu Isteri Malaysia"]
+    .forEach(t => add(m1, "Komen Affiliate", t));
+  add(m1, "Gula Melaka", "20 Affiliate TRB Gula Melaka", { days: [1, 4, 6] });
+  add(m1, "Video Resepi", "Dapur Simple Viral (video resepi)", { time: "11:30 AM" });
+  ["trbmarketing", "melakafoodiee", "ceoofbajet", "rimbabydking", "bosskj88"]
+    .forEach(u => add(m1, "TikTok Komen", "@" + u, { link: "https://www.tiktok.com/@" + u, days: [1, 3, 5] }));
+  add(m2, "Livestream", "Live sesi pagi (2 jam)", { time: "10:00 AM" });
+  add(m2, "Livestream", "Live sesi malam (2 jam)", { time: "9:00 PM" });
+  add(m2, "Livestream", "Post teaser live di FB & TikTok", { time: "Sebelum live" });
+  add(m2, "Laporan", "Hantar report jualan live", { days: [1, 2, 3, 4, 5, 6, 0] });
+  add(m3, "Shopee", "10 Video Shopee");
+  add(m3, "Shopee", "Update link affiliate produk baru", { days: [1, 4] });
+  const stale = new Set([tasks[15].id, tasks[31].id, tasks[37].id]);
+  const checks = new Set(), all = [m1, m2, m3];
+  for (let i = 70; i >= 0; i--) {
+    const d = addDays(T, -i), dow = parse(d).getDay();
+    for (const t of tasks) {
+      const m = all.find(x => x.id === t.member_id);
+      if (d < m.start_date || !t.days.includes(dow)) continue;
+      let p = i === 0 ? 0.45 : 0.92;
+      if (m === m3) p -= 0.2;
+      if (stale.has(t.id) && i < 14) p = 0;
+      if (rnd() < p) checks.add(t.id + "|" + d);
+    }
+  }
+  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks };
+}
+
+// ---------- state ----------
+let api, sb = null;
+const S = { members: [], tasks: [], done: new Set(), range: null, tab: "today", member: "", date: today(),
+  week: mondayOf(today()), stale: 3, editTask: null, editMember: null, bulk: false, manageMember: null };
+
+async function ensure(f, t) {
+  if (S.range && f >= S.range[0] && t <= S.range[1]) return;
+  if (S.range) { if (S.range[0] < f) f = S.range[0]; if (S.range[1] > t) t = S.range[1]; }
+  const rows = await api.checks(f, t);
+  S.done = new Set(rows.map(r => r.task_id + "|" + r.date));
+  S.range = [f, t];
+}
+async function loadAll() {
+  [S.members, S.tasks] = await Promise.all([api.members(), api.tasks()]);
+  sortAll();
+  S.range = null;
+  await ensure(addDays(today(), -120), addDays(today(), 7));
+  if (!S.member || !S.members.some(m => m.id === S.member)) S.member = S.members.find(m => m.active)?.id || "";
+}
+const sortAll = () => {
+  S.members.sort((a, b) => a.name.localeCompare(b.name));
+  S.tasks.sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+};
+const upd = (arr, o) => { const i = arr.findIndex(x => x.id === o.id); i < 0 ? arr.push(o) : (arr[i] = o); };
+const nextSort = () => S.tasks.reduce((mx, t) => Math.max(mx, t.sort ?? 0), 0) + 1;
+
+// ---------- logik ----------
+const memberOf = t => S.members.find(m => m.id === t.member_id);
+const isDone = (t, d) => S.done.has(t.id + "|" + d);
+function scheduled(t, d) {
+  if (!t.active) return false;
+  if (t.start_date && d < t.start_date) return false;
+  const m = memberOf(t);
+  if (!m || !m.active) return false;
+  if (m.start_date && d < m.start_date) return false;
+  if (m.end_date && d > m.end_date) return false;
+  return (t.days || []).includes(parse(d).getDay());
+}
+const tasksFor = mid => S.tasks.filter(t => (!mid || t.member_id === mid) && memberOf(t));
+function grouped(list) {
+  const out = [];
+  for (const m of S.members) {
+    const ts = list.filter(t => t.member_id === m.id);
+    if (!ts.length) continue;
+    const secs = [];
+    for (const t of ts) { let s = secs.find(x => x.name === t.section); if (!s) secs.push(s = { name: t.section, tasks: [] }); s.tasks.push(t); }
+    out.push({ m, secs });
+  }
+  return out;
+}
+function stats(mid, ws) {
+  const T = today(); let sch = 0, done = 0, miss = 0, pend = 0; const missed = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(ws, i);
+    for (const t of S.tasks) {
+      if (t.member_id !== mid || !scheduled(t, d)) continue;
+      sch++;
+      if (isDone(t, d)) done++;
+      else if (d < T) { miss++; missed.push([t, d]); }
+      else pend++;
+    }
+  }
+  const due = done + miss;
+  return { sch, done, miss, pend, missed, pct: due ? Math.round(done * 100 / due) : null };
+}
+function staleList() {
+  const T = today(), out = [];
+  for (const t of S.tasks) {
+    const m = memberOf(t);
+    if (!m || !m.active || !t.active || isDone(t, T)) continue;
+    let last = null, missed = 0;
+    for (let i = 1; i <= 120; i++) {
+      const d = addDays(T, -i);
+      if (isDone(t, d)) { last = d; break; }
+      if (scheduled(t, d)) missed++;
+    }
+    if (missed >= S.stale) out.push({ t, m, last, missed, ago: last ? daysBetween(last, T) : null });
+  }
+  return out.sort((a, b) => b.missed - a.missed);
+}
+const daysTxt = ds => {
+  const s = [...ds].sort();
+  if (s.length === 7) return "Setiap hari";
+  if (s.join() === "1,2,3,4,5,6") return "Isnin–Sabtu";
+  if (s.join() === "1,2,3,4,5") return "Isnin–Jumaat";
+  return WEEK_ORDER.filter(d => ds.includes(d)).map(d => DS[d]).join(", ");
+};
+
+// ---------- komponen ----------
+const link = t => t.link ? `<a class="lnk" href="${esc(safeUrl(t.link))}" target="_blank" rel="noopener">Buka ↗</a>` : "";
+const memberSel = all => `<select id="memSel">${all ? `<option value="">Semua member</option>` : ""}${S.members.filter(m => m.active)
+  .map(m => `<option value="${m.id}" ${m.id === S.member ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>`;
+const weekNav = () => `<div class="datenav"><button data-act="wk" data-n="-7">‹</button><span class="wklbl">${dm(S.week)} – ${dm(addDays(S.week, 6))}</span><button data-act="wk" data-n="7">›</button>${S.week !== mondayOf(today()) ? `<button class="ghost sm" data-act="thiswk">Minggu ni</button>` : ""}</div>`;
+
+// ---------- view: checklist harian ----------
+function vToday() {
+  const d = S.date, T = today();
+  const list = tasksFor(S.member).filter(t => scheduled(t, d));
+  const done = list.filter(t => isDone(t, d)).length;
+  const pct = list.length ? Math.round(done * 100 / list.length) : 0;
+  let h = `<div class="card"><div class="tools">${memberSel(true)}
+    <div class="datenav"><button data-act="day" data-n="-1">‹</button><input type="date" id="dateIn" value="${d}"><button data-act="day" data-n="1">›</button>
+    ${d !== T ? `<button class="ghost sm" data-act="gotoday">Hari ini</button>` : ""}</div>
+    <div class="dayname">${DN[parse(d).getDay()]}</div></div>
+    <div class="prog"><div class="progtxt"><b>${done}/${list.length}</b> siap · ${pct}%</div><div class="pbar"><i style="width:${pct}%"></i></div></div></div>`;
+  if (!list.length) return h + `<div class="card empty">Tiada task dijadualkan untuk hari ni.</div>`;
+  for (const g of grouped(list)) {
+    h += `<div class="card"><h2>${esc(g.m.name)}<small>${esc(g.m.role || "")}</small></h2>`;
+    for (const s of g.secs) {
+      h += `<h3>${esc(s.name)}</h3><div class="tlist">` + s.tasks.map(t => {
+        const ok = isDone(t, d), late = !ok && d < T;
+        return `<label class="trow ${ok ? "ok" : ""} ${late ? "late" : ""}"><input type="checkbox" data-chk="${t.id}" data-d="${d}" ${ok ? "checked" : ""}>
+          <span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}${late ? `<span class="chip bad">Tertinggal</span>` : ""}${link(t)}</label>`;
+      }).join("") + `</div>`;
+    }
+    h += `</div>`;
+  }
+  return h;
+}
+
+// ---------- view: grid minggu (macam Google Sheet) ----------
+function vWeek() {
+  const days = [...Array(7)].map((_, i) => addDays(S.week, i)), T = today();
+  const list = tasksFor(S.member).filter(t => days.some(d => scheduled(t, d)));
+  let h = `<div class="card"><div class="tools">${memberSel(true)}${weekNav()}</div>
+    <div class="legend"><span><i style="background:var(--okbg)"></i>Siap</span><span><i style="background:var(--badbg)"></i>Tertinggal</span>
+    <span><i></i>Belum (klik untuk tanda)</span><span><i style="background:repeating-linear-gradient(45deg,#fafafa,#fafafa 3px,#e5e7eb 3px,#e5e7eb 6px)"></i>Tak dijadualkan</span></div></div>`;
+  if (!list.length) return h + `<div class="card empty">Tiada task untuk minggu ni.</div>`;
+  h += `<div class="card scroll"><table class="grid"><thead><tr><th class="tcol">Task</th>${days.map(d => `<th class="${d === T ? "today" : ""}">${DS[parse(d).getDay()]}<br><small>${dm(d)}</small></th>`).join("")}<th>Siap</th></tr></thead><tbody>`;
+  const col = days.map(() => [0, 0]);
+  for (const g of grouped(list)) {
+    if (!S.member) h += `<tr class="mem"><td colspan="9">${esc(g.m.name)}</td></tr>`;
+    for (const s of g.secs) {
+      h += `<tr class="sec"><td colspan="9">${esc(s.name)}</td></tr>`;
+      for (const t of s.tasks) {
+        let a = 0, b = 0;
+        const cells = days.map((d, i) => {
+          if (!scheduled(t, d)) return `<td class="na"></td>`;
+          const ok = isDone(t, d); b++; col[i][1]++; if (ok) { a++; col[i][0]++; }
+          const cls = ok ? "ok" : d < T ? "miss" : "todo";
+          return `<td class="cell ${cls} ${d === T ? "now" : ""}" data-t="${t.id}" data-d="${d}" title="${DN[parse(d).getDay()]} ${dm(d)}">${ok ? "✓" : d < T ? "✗" : ""}</td>`;
+        }).join("");
+        h += `<tr><td class="tcol">${esc(t.title)} ${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""} ${link(t)}</td>${cells}<td class="cnt">${a}/${b}</td></tr>`;
+      }
+    }
+  }
+  h += `</tbody><tfoot><tr><td class="tcol">% siap sehari</td>${col.map(([a, b]) => `<td>${b ? Math.round(a * 100 / b) + "%" : ""}</td>`).join("")}<td></td></tr></tfoot></table></div>`;
+  return h;
+}
+
+// ---------- view: ringkasan ----------
+function vSummary() {
+  const ms = S.members.filter(m => m.active);
+  let h = `<div class="card"><div class="tools"><h2 style="margin:0">Ringkasan mingguan</h2>${weekNav()}</div></div><div class="cards">`;
+  const all = [];
+  for (const m of ms) {
+    const s = stats(m.id, S.week); all.push([m, s]);
+    const trend = [3, 2, 1].map(k => stats(m.id, addDays(S.week, -7 * k)).pct);
+    const cls = s.pct == null ? "" : s.pct >= 90 ? "good" : s.pct >= 70 ? "mid" : "low";
+    h += `<div class="card"><div class="mtop"><div><b>${esc(m.name)}</b><div class="mute">${esc(m.role || "")}</div></div><div class="pct ${cls}">${s.pct == null ? "–" : s.pct + "%"}</div></div>
+      <div class="pbar"><i style="width:${s.pct || 0}%"></i></div>
+      <div class="nums"><span><b>${s.done}</b> siap</span><span class="bad"><b>${s.miss}</b> tertinggal</span><span><b>${s.pend}</b> belum sampai</span></div>
+      <div class="trend mute">Trend: ${trend.map(p => p == null ? "–" : p + "%").join(" → ")} → <b>${s.pct == null ? "–" : s.pct + "%"}</b></div>
+      <button class="ghost sm" data-act="openweek" data-m="${m.id}">Lihat grid ›</button></div>`;
+  }
+  h += `</div>`;
+  const rows = [];
+  for (const [m, s] of all) {
+    const by = new Map();
+    for (const [t, d] of s.missed) { if (!by.has(t.id)) by.set(t.id, { t, ds: [] }); by.get(t.id).ds.push(d); }
+    for (const v of by.values()) rows.push({ m, ...v });
+  }
+  rows.sort((a, b) => b.ds.length - a.ds.length);
+  const tot = rows.reduce((a, r) => a + r.ds.length, 0);
+  h += `<div class="card"><h2>Tertinggal minggu ni <span class="badge bad">${tot}</span></h2>${rows.length ? `<table class="tbl"><thead><tr><th>Member</th><th>Bahagian</th><th>Task</th><th>Hari tertinggal</th></tr></thead><tbody>${rows.map(r =>
+    `<tr><td>${esc(r.m.name)}</td><td>${esc(r.t.section)}</td><td>${esc(r.t.title)}</td><td>${r.ds.map(d => `<span class="chip bad">${DS[parse(d).getDay()]} ${dm(d)}</span>`).join(" ")}</td></tr>`).join("")}</tbody></table>` : `<p class="mute">Takde yang tertinggal minggu ni. 👍</p>`}</div>`;
+  const st = staleList();
+  h += `<div class="card"><h2>Dah lama tak buat <span class="badge warn">${st.length}</span></h2>
+    <p class="mute">Dikira dari hari ini: task yang dah terlepas <input type="number" id="staleIn" class="num" min="1" value="${S.stale}"> kali atau lebih berturut-turut.</p>
+    ${st.length ? `<table class="tbl"><thead><tr><th>Member</th><th>Bahagian</th><th>Task</th><th>Terakhir buat</th><th>Terlepas</th></tr></thead><tbody>${st.map(x =>
+      `<tr><td>${esc(x.m.name)}</td><td>${esc(x.t.section)}</td><td>${esc(x.t.title)} ${link(x.t)}</td><td>${x.last ? `${DS[parse(x.last).getDay()]} ${dm(x.last)} <span class="mute">(${x.ago} hari lepas)</span>` : `<span class="chip bad">Belum pernah buat</span>`}</td><td><b>${x.missed}</b> kali</td></tr>`).join("")}</tbody></table>`
+      : `<p class="mute">Semua task aktif masih berjalan. 👍</p>`}</div>`;
+  return h;
+}
+
+// ---------- view: urus ----------
+function vManage() {
+  if (!S.members.some(m => m.id === S.manageMember)) S.manageMember = S.members[0]?.id || null;
+  const m = S.members.find(x => x.id === S.manageMember);
+  let h = `<div class="mgrid"><div><div class="card"><div class="tools"><h2 style="margin:0">Team</h2><div class="spacer"></div><button class="sm" data-act="newmember">+ Member</button></div>
+    <div class="mlist">${S.members.map(x => `<button class="mitem ${x.id === S.manageMember ? "on" : ""}" data-act="pickm" data-m="${x.id}"><b>${esc(x.name)}</b><span class="mute">${esc(x.role || "")}${x.active ? "" : " · tak aktif"}</span></button>`).join("") || `<p class="mute">Belum ada member.</p>`}</div></div>
+    ${S.editMember ? memberForm(S.editMember) : ""}</div><div>`;
+  if (m) {
+    const ts = S.tasks.filter(t => t.member_id === m.id);
+    h += `<div class="card"><div class="tools"><h2 style="margin:0">${esc(m.name)}</h2><div class="spacer"></div>
+      <button class="ghost sm" data-act="editmember" data-m="${m.id}">Edit member</button><button class="ghost sm" data-act="bulk">+ Tambah pukal</button><button class="sm" data-act="newtask">+ Task</button></div>
+      <p class="mute">${esc(m.role || "")}${m.start_date ? " · Mula " + dm(m.start_date) : ""}${m.end_date ? " · Tamat " + dm(m.end_date) : ""} · ${ts.length} task</p>
+      ${S.editTask ? taskForm(S.editTask) : ""}${S.bulk ? bulkForm() : ""}`;
+    if (!ts.length && !S.editTask && !S.bulk) h += `<p class="mute">Belum ada task. Klik <b>+ Task</b> atau <b>+ Tambah pukal</b> (paste senarai nama page sekali gus).</p>`;
+    for (const g of grouped(ts)) for (const s of g.secs) {
+      h += `<h3>${esc(s.name)}</h3><table class="tbl fix"><tbody>${s.tasks.map(t => `<tr class="${t.active ? "" : "off"}"><td>${esc(t.title)} ${link(t)}</td><td class="mute">${esc(t.time || "")}</td><td class="mute">${daysTxt(t.days || [])}</td>
+        <td class="r"><button class="ghost sm" data-act="edittask" data-t="${t.id}">Edit</button> <button class="ghost sm danger" data-act="deltask" data-t="${t.id}">Padam</button></td></tr>`).join("")}</tbody></table>`;
+    }
+    h += `</div>`;
+  } else h += `<div class="card empty">Tambah member dulu (butang <b>+ Member</b>).</div>`;
+  return h + `</div></div>`;
+}
+const memberForm = m => `<form class="card form" id="memberForm"><h3 style="margin-top:0">${m.id ? "Edit" : "Tambah"} member</h3>
+  <label>Nama<input name="name" required value="${esc(m.name || "")}"></label>
+  <label>Jawatan / peranan<input name="role" value="${esc(m.role || "")}" placeholder="cth: Live Host"></label>
+  <div class="row2"><label>Tarikh mula<input type="date" name="start_date" value="${m.start_date || ""}"></label><label>Tarikh tamat<input type="date" name="end_date" value="${m.end_date || ""}"></label></div>
+  <label class="inline"><input type="checkbox" name="active" ${m.active !== false ? "checked" : ""}> Aktif</label>
+  <div class="btns"><button type="submit">Simpan</button><button type="button" class="ghost" data-act="cancel">Batal</button>
+  ${m.id ? `<button type="button" class="ghost danger" data-act="delmember" data-m="${m.id}">Padam</button>` : ""}</div></form>`;
+const daysPick = sel => `<div class="days">${WEEK_ORDER.map(d => `<label><input type="checkbox" name="days" value="${d}" ${sel.includes(d) ? "checked" : ""}>${DS[d]}</label>`).join("")}</div>`;
+const secList = () => `<datalist id="secs">${[...new Set(S.tasks.map(t => t.section))].map(s => `<option value="${esc(s)}">`).join("")}</datalist>`;
+const taskForm = t => `<form class="form sub" id="taskForm"><h3 style="margin-top:0">${t.id ? "Edit" : "Tambah"} task</h3>
+  <div class="row2"><label>Bahagian<input name="section" list="secs" required value="${esc(t.section || "")}" placeholder="cth: Story Khind JR BP10"></label>
+  <label>Masa (pilihan)<input name="time" value="${esc(t.time || "")}" placeholder="1:00 PM"></label></div>
+  <label>Nama task / page<input name="title" required value="${esc(t.title || "")}"></label>
+  <label>Link (pilihan)<input name="link" value="${esc(t.link || "")}" placeholder="https://www.facebook.com/..."></label>
+  <label>Hari kena buat</label>${daysPick(t.days || [1, 2, 3, 4, 5, 6])}
+  <div class="row2"><label>Mula dikira dari<input type="date" name="start_date" value="${t.start_date || today()}"></label>
+  <label class="inline"><input type="checkbox" name="active" ${t.active !== false ? "checked" : ""}> Aktif</label></div>
+  <div class="btns"><button type="submit">Simpan</button><button type="button" class="ghost" data-act="cancel">Batal</button></div>${secList()}</form>`;
+const bulkForm = () => `<form class="form sub" id="bulkForm"><h3 style="margin-top:0">Tambah pukal</h3>
+  <p class="mute" style="margin:0">Satu task satu baris. Nak letak link, tambah selepas tanda <b>|</b><br>cth: <code>Cinta Suami Isteri | https://www.facebook.com/...</code></p>
+  <div class="row2"><label>Bahagian<input name="section" list="secs" required placeholder="cth: Posting Page"></label><label>Masa (pilihan)<input name="time" placeholder="1:00 PM"></label></div>
+  <label>Senarai task<textarea name="lines" rows="8" required></textarea></label>
+  <label>Hari kena buat</label>${daysPick([1, 2, 3, 4, 5, 6])}
+  <label>Mula dikira dari<input type="date" name="start_date" value="${today()}"></label>
+  <div class="btns"><button type="submit">Tambah</button><button type="button" class="ghost" data-act="cancel">Batal</button></div>${secList()}</form>`;
+
+// ---------- render ----------
+function render() {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
+  const v = { today: vToday, week: vWeek, summary: vSummary, manage: vManage }[S.tab];
+  $("#app").innerHTML = (S.members.length || S.tab === "manage") ? v()
+    : `<div class="card empty">Belum ada member. Pergi tab <b>⚙️ Urus Team &amp; Task</b> untuk mula.</div>`;
+}
+function toast(msg, bad) {
+  const t = $("#toast"); t.textContent = msg; t.className = "show" + (bad ? " bad" : "");
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.className = ""), 2600);
+}
+async function toggle(tid, d, on) {
+  const k = tid + "|" + d;
+  on ? S.done.add(k) : S.done.delete(k); render();
+  try { await api.setCheck(tid, d, on); }
+  catch (e) { on ? S.done.delete(k) : S.done.add(k); render(); toast("Gagal simpan: " + e.message, 1); }
+}
+const closeForms = () => { S.editTask = null; S.editMember = null; S.bulk = false; };
+
+// ---------- events ----------
+document.addEventListener("click", async e => {
+  const tab = e.target.closest("[data-tab]");
+  if (tab) { S.tab = tab.dataset.tab; closeForms(); return render(); }
+  const cell = e.target.closest("td.cell");
+  if (cell) return toggle(cell.dataset.t, cell.dataset.d, !S.done.has(cell.dataset.t + "|" + cell.dataset.d));
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const a = b.dataset.act, n = +b.dataset.n;
+  try {
+    if (a === "day") { S.date = addDays(S.date, n); await ensure(addDays(S.date, -1), S.date); }
+    else if (a === "gotoday") S.date = today();
+    else if (a === "wk") { S.week = addDays(S.week, n); await ensure(addDays(S.week, -21), addDays(S.week, 6)); }
+    else if (a === "thiswk") S.week = mondayOf(today());
+    else if (a === "openweek") { S.member = b.dataset.m; S.tab = "week"; }
+    else if (a === "newmember") { closeForms(); S.editMember = { active: true, start_date: today() }; }
+    else if (a === "editmember") { closeForms(); S.editMember = { ...S.members.find(x => x.id === b.dataset.m) }; }
+    else if (a === "pickm") { closeForms(); S.manageMember = b.dataset.m; }
+    else if (a === "newtask") { closeForms(); S.editTask = { active: true }; }
+    else if (a === "bulk") { closeForms(); S.bulk = true; }
+    else if (a === "edittask") { closeForms(); S.editTask = { ...S.tasks.find(x => x.id === b.dataset.t) }; }
+    else if (a === "cancel") closeForms();
+    else if (a === "deltask") {
+      const t = S.tasks.find(x => x.id === b.dataset.t);
+      if (!confirm(`Padam task "${t.title}"? Semua rekod tanda untuk task ni pun akan hilang.`)) return;
+      await api.delTask(t.id); S.tasks = S.tasks.filter(x => x.id !== t.id); toast("Task dipadam");
+    }
+    else if (a === "delmember") {
+      const m = S.members.find(x => x.id === b.dataset.m);
+      if (!confirm(`Padam ${m.name} berserta semua task & rekod? Kalau sekadar dah berhenti, lebih baik untick "Aktif".`)) return;
+      await api.delMember(m.id); S.members = S.members.filter(x => x.id !== m.id); S.tasks = S.tasks.filter(t => t.member_id !== m.id);
+      closeForms(); toast("Member dipadam");
+    }
+    else if (a === "logout") { await sb.auth.signOut(); return location.reload(); }
+    render();
+  } catch (err) { toast(err.message || String(err), 1); }
+});
+
+document.addEventListener("change", async e => {
+  const el = e.target;
+  if (el.dataset.chk) return toggle(el.dataset.chk, el.dataset.d, el.checked);
+  if (el.id === "memSel") { S.member = el.value; render(); }
+  if (el.id === "dateIn" && el.value) { S.date = el.value; await ensure(addDays(S.date, -1), S.date); render(); }
+  if (el.id === "staleIn") { S.stale = Math.max(1, +el.value || 1); render(); }
+});
+
+document.addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, fd = new FormData(f), days = fd.getAll("days").map(Number);
+  const val = k => (fd.get(k) || "").toString().trim();
+  try {
+    if (f.id === "loginForm") {
+      const { error } = await sb.auth.signInWithPassword({ email: val("email"), password: fd.get("pw") });
+      if (error) return toast("Log masuk gagal: " + error.message, 1);
+      $("nav").hidden = false; return start();
+    }
+    if (f.id === "memberForm") {
+      const m = { ...S.editMember, name: val("name"), role: val("role"), start_date: val("start_date") || null, end_date: val("end_date") || null, active: fd.has("active") };
+      const saved = await api.saveMember(m); upd(S.members, saved); sortAll();
+      S.manageMember = saved.id; if (!S.member) S.member = saved.id; closeForms(); toast("Member disimpan");
+    }
+    else if (f.id === "taskForm") {
+      if (!days.length) return toast("Pilih sekurang-kurangnya satu hari", 1);
+      const t = { ...S.editTask, member_id: S.editTask.member_id || S.manageMember, section: val("section"), title: val("title"),
+        link: val("link"), time: val("time"), days, start_date: val("start_date") || today(), active: fd.has("active") };
+      if (!t.id) t.sort = nextSort();
+      const saved = await api.saveTask(t); upd(S.tasks, saved); sortAll(); closeForms(); toast("Task disimpan");
+    }
+    else if (f.id === "bulkForm") {
+      if (!days.length) return toast("Pilih sekurang-kurangnya satu hari", 1);
+      const base = nextSort();
+      const arr = val("lines").split("\n").map(l => l.trim()).filter(Boolean).map((l, i) => {
+        const [title, ...rest] = l.split("|");
+        return { member_id: S.manageMember, section: val("section"), title: title.trim(), link: rest.join("|").trim(), time: val("time"),
+          days, start_date: val("start_date") || today(), active: true, sort: base + i };
+      });
+      const saved = await api.insertTasks(arr); S.tasks.push(...saved); sortAll(); closeForms(); toast(`${saved.length} task ditambah`);
+    }
+    render();
+  } catch (err) { toast(err.message || String(err), 1); }
+});
+
+// ---------- mula ----------
+async function start() {
+  $("#app").innerHTML = `<div class="card empty">Loading…</div>`;
+  try { await loadAll(); $("#logout").hidden = DEMO; render(); }
+  catch (e) { $("#app").innerHTML = `<div class="card empty">Ralat: ${esc(e.message)}</div>`; }
+}
+async function boot() {
+  if (DEMO) { api = demoApi(); $("#demo").hidden = false; return start(); }
+  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); api = sbApi(sb);
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) return start();
+  $("nav").hidden = true;
+  $("#app").innerHTML = `<form class="card form login" id="loginForm"><h2>Log masuk</h2>
+    <label>Emel<input type="email" name="email" required></label><label>Kata laluan<input type="password" name="pw" required></label>
+    <div class="btns"><button type="submit">Masuk</button></div></form>`;
+}
+boot();
+</script>
+</body>
+</html>
