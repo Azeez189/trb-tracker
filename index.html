@@ -111,6 +111,33 @@ code{background:#f1f3f5;padding:1px 5px;border-radius:4px}
 .filters button.on{background:var(--brandbg);border-color:var(--brand);color:var(--brand);font-weight:600}
 .utbl select{padding:4px 6px;font-size:13px;max-width:170px}
 .utbl td{vertical-align:middle}
+/* --- v3: input tugasan --- */
+.trow.partial{border-color:#fde68a;background:#fffbeb}
+.trow.open{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.chip.warn{background:var(--warnbg);color:var(--warn)}
+.chip.inp{background:#eef2ff;color:#4338ca}
+.notick{width:18px;text-align:center;font-size:14px}
+.trow .ibtn{background:#fff;color:var(--ink);border-color:var(--line);padding:3px 9px;font-size:12px}
+.ipanel{border:1px solid var(--line);border-top:0;margin:-4px 0 4px;padding:12px;border-radius:0 0 8px 8px;background:#fcfcfd;display:flex;flex-direction:column;gap:10px}
+.ipanel label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute)}
+.ipanel textarea{min-height:70px;resize:vertical;font:inherit}
+.lrow{display:flex;gap:6px;margin-top:4px}.lrow input{flex:1}
+.req{color:var(--bad);font-weight:600}
+.meta{font-size:12px;color:var(--mute);line-height:1.6}
+.hist{font-size:12px;border-top:1px dashed var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.grid td.part{background:var(--warnbg);color:var(--warn)}
+.grid td.todo{color:#c4c9d2;font-weight:400}
+fieldset.inputs{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:10px;margin:0}
+fieldset.inputs legend{font-size:13px;font-weight:600;color:var(--ink);padding:0 4px}
+.togrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.form label.tog{flex-direction:row;align-items:center;gap:8px;color:var(--ink);font-weight:500;min-width:230px}
+.tog input{width:34px;height:18px;appearance:none;-webkit-appearance:none;background:#d1d5db;border-radius:99px;position:relative;cursor:pointer;transition:.15s;margin:0;flex:none;padding:0;border:0}
+.tog input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s}
+.tog input:checked{background:var(--ok)}.tog input:checked::after{left:18px}
+.togrow select{padding:4px 8px;font-size:13px}
+.togrow select:disabled,.form label.inline.dis{opacity:.4}
+.rulehint{font-size:12px;background:#f1f5f9;border-radius:8px;padding:8px 10px;color:var(--ink)}
+.rulehint.bad{background:var(--badbg);color:var(--bad)}
 .uid{font-family:ui-monospace,monospace;font-size:12px;background:#f1f3f5;padding:6px 8px;border-radius:6px;word-break:break-all;user-select:all}
 </style>
 </head>
@@ -124,6 +151,7 @@ code{background:#f1f3f5;padding:1px 5px;border-radius:4px}
     <button data-tab="summary">📊 Ringkasan</button>
     <button data-tab="manage">⚙️ Urus Team &amp; Task</button>
     <button data-tab="users">👥 Pengurusan Pengguna</button>
+    <button data-tab="arkib">🗄️ Arkib</button>
   </nav>
   <div class="spacer"></div>
   <span id="who" class="who-chip"></span>
@@ -167,7 +195,7 @@ const safeUrl = u => (/^https?:\/\//i.test(u) ? u : "https://" + u);
 function sbApi(sb) {
   const ok = ({ data, error }) => { if (error) throw error; return data; };
   const save = async (tb, o) => {
-    const { id, created_at, ...r } = o;
+    const { id, created_at, archived_at, archived_by, ...r } = o;   // kolum arkib hanya diubah melalui fungsi server
     return ok(id ? await sb.from(tb).update(r).eq("id", id).select().single()
                  : await sb.from(tb).insert(r).select().single());
   };
@@ -184,13 +212,35 @@ function sbApi(sb) {
       }
     },
     saveMember: m => save("members", m),
-    delMember: async id => ok(await sb.from("members").delete().eq("id", id)),
+    // "Padam": server padam kekal jika tiada rekod, jika ada rekod → ARKIB. Pulangkan "deleted" / "archived"
+    deleteMember: async id => ok(await sb.rpc("delete_or_archive_member", { p_member: id })),
+    restoreMember: async id => ok(await sb.rpc("restore_member", { p_member: id })),
     saveTask: t => save("tasks", t),
     insertTasks: async arr => ok(await sb.from("tasks").insert(arr).select()),
-    delTask: async id => ok(await sb.from("tasks").delete().eq("id", id)),
-    setCheck: async (task_id, date, on) => ok(on
-      ? await sb.from("checks").upsert({ task_id, date }, { onConflict: "task_id,date", ignoreDuplicates: true })
-      : await sb.from("checks").delete().eq("task_id", task_id).eq("date", date)),
+    deleteTask: async id => ok(await sb.rpc("delete_or_archive_task", { p_task: id })),
+    restoreTask: async id => ok(await sb.rpc("restore_task", { p_task: id })),
+    taskRecords: async tid => {
+      const [c, s, h] = await Promise.all([
+        sb.from("checks").select("date,done_by,done_at").eq("task_id", tid).order("date", { ascending: false }),
+        sb.from("submissions").select("*").eq("task_id", tid).order("date", { ascending: false }),
+        sb.from("submission_history").select("*").eq("task_id", tid).order("changed_at", { ascending: false })]);
+      return { checks: ok(c), subs: ok(s), hist: ok(h) };
+    },
+    // --- v3: isian tugasan. "Selesai" (checks) dikira & ditulis oleh server ---
+    subs: async (f, t) => {
+      let out = [];
+      for (let i = 0; ; i += 1000) {
+        const d = ok(await sb.from("submissions").select("*").gte("date", f).lte("date", t).order("date").order("task_id").range(i, i + 999));
+        out = out.concat(d);
+        if (d.length < 1000) return out;
+      }
+    },
+    // RPC atomik: hanya ruangan yang dihantar diubah; semakan kebenaran & konflik di server
+    save: async (task_id, date, p) => ok(await sb.rpc("save_submission", {
+      p_task_id: task_id, p_date: date, p_ticked: p.p_ticked ?? null,
+      p_set_comment: !!p.p_set_comment, p_comment: p.p_comment ?? null, p_base_comment: p.p_base_comment ?? null,
+      p_set_links: !!p.p_set_links, p_links: p.p_links ?? null, p_base_links: p.p_base_links ?? null })),
+    history: async (tid, d) => ok(await sb.from("submission_history").select("*").eq("task_id", tid).eq("date", d).order("changed_at", { ascending: false })),
     // --- akaun & pengguna (semua disemak di server oleh RLS / fungsi SQL) ---
     myProfile: async uid => ok(await sb.from("profiles").select("*").eq("id", uid).maybeSingle()),
     people: async () => ok(await sb.rpc("people")),
@@ -215,14 +265,40 @@ function demoApi() {
     checks: async (f, t) => [...st.checks].map(k => { const [task_id, date] = k.split("|"); return { task_id, date, ...st.info.get(k) }; })
       .filter(r => r.date >= f && r.date <= t),
     saveMember: async m => upsert(st.members, m),
-    delMember: async id => { st.members = st.members.filter(x => x.id !== id); st.tasks = st.tasks.filter(t => t.member_id !== id); },
+    deleteMember: async id => {
+      const ts = st.tasks.filter(t => t.member_id === id);
+      if (ts.some(t => demoHasRecords(st, t.id))) {
+        const now = new Date().toISOString(), m = st.members.find(x => x.id === id);
+        m.archived_at = now; m.archived_by = ME.id;
+        ts.filter(t => !t.archived_at).forEach(t => { t.archived_at = now; t.archived_by = ME.id; });
+        return "archived";
+      }
+      st.members = st.members.filter(x => x.id !== id); st.tasks = st.tasks.filter(t => t.member_id !== id); return "deleted";
+    },
+    restoreMember: async id => {
+      const m = st.members.find(x => x.id === id), ts = m.archived_at;
+      m.archived_at = null; m.archived_by = null;
+      st.tasks.filter(t => t.member_id === id && t.archived_at === ts).forEach(t => { t.archived_at = null; t.archived_by = null; });
+    },
     saveTask: async t => upsert(st.tasks, t),
     insertTasks: async arr => arr.map(t => upsert(st.tasks, t)),
-    delTask: async id => { st.tasks = st.tasks.filter(x => x.id !== id); },
-    setCheck: async (task, date, on) => {
-      const k = task + "|" + date;
-      if (on) { st.checks.add(k); st.info.set(k, { done_by: ME.id, done_at: new Date().toISOString() }); } else { st.checks.delete(k); st.info.delete(k); }
+    deleteTask: async id => {
+      const t = st.tasks.find(x => x.id === id);
+      if (demoHasRecords(st, id)) { t.archived_at = new Date().toISOString(); t.archived_by = ME.id; return "archived"; }
+      st.tasks = st.tasks.filter(x => x.id !== id); return "deleted";
     },
+    restoreTask: async id => {
+      const t = st.tasks.find(x => x.id === id);
+      if (st.members.find(m => m.id === t.member_id)?.archived_at) throw new Error("Member tugasan ini diarkibkan. Pulihkan member dahulu.");
+      t.archived_at = null; t.archived_by = null;
+    },
+    taskRecords: async tid => ({
+      checks: [...st.checks].filter(k => k.startsWith(tid + "|")).map(k => { const d = k.split("|")[1], i = st.info.get(k) || {}; return { date: d, done_by: i.done_by, done_at: i.done_at }; }),
+      subs: [...st.subs.values()].filter(x => x.task_id === tid).map(x => ({ ...x })),
+      hist: st.hist.filter(h => h.task_id === tid).slice().reverse() }),
+    subs: async (f, t) => [...st.subs.values()].filter(r => r.date >= f && r.date <= t).map(r => ({ ...r, links: [...r.links] })),
+    save: async (task_id, date, p) => demoSave(st, task_id, date, p),
+    history: async (tid, d) => st.hist.filter(h => h.task_id === tid && h.date === d).slice().reverse(),
     myProfile: async () => ({ ...st.users[0] }),
     people: async () => st.users.map(u => ({ id: u.id, full_name: u.full_name })),
     users: async () => st.users.map(u => ({ ...u })),
@@ -240,6 +316,47 @@ function demoApi() {
   };
 }
 
+// Tiruan save_submission() + trigger server untuk mod demo (logik sama dengan migration_v3.sql)
+function demoSave(st, task_id, date, p) {
+  const t = st.tasks.find(x => x.id === task_id); if (!t) throw new Error("Tugasan tidak wujud");
+  if (p.p_ticked == null && !p.p_set_comment && !p.p_set_links) throw new Error("Tiada perubahan untuk disimpan");
+  const k = task_id + "|" + date, old = st.subs.get(k), now = new Date().toISOString();
+  const norm = v => ((v ?? "") + "").trim() || null, cleanL = a => (a || []).map(x => x.trim()).filter(Boolean);
+  const conflict = f => Object.assign(new Error(`KONFLIK: ${f} telah dikemas kini oleh pengguna lain. Muat semula dan semak sebelum simpan.`), { code: "PT409" });
+  if (old && p.p_set_comment && old.comment !== norm(p.p_base_comment)) throw conflict("komen");
+  if (old && p.p_set_links && old.links.join("\n") !== (p.p_base_links || []).join("\n")) throw conflict("link");
+  const legacy = old ? old.legacy : st.checks.has(k);
+  const n = old ? { ...old, links: [...old.links] } : { id: uid(), task_id, date, ticked: p.p_ticked ?? legacy, comment: null, links: [], legacy,
+    submitted_by: ME.id, submitted_at: now, updated_by: null, updated_at: null };
+  if (old && p.p_ticked != null) n.ticked = !!p.p_ticked;
+  if (p.p_set_comment) n.comment = norm(p.p_comment);
+  if (p.p_set_links) n.links = cleanL(p.p_links);
+  if (old) { n.updated_by = ME.id; n.updated_at = now; }
+  const cs = inputSettings(t);
+  n.rules = old ? old.rules : { ...cs, use_check: cs.use_check || legacy, comment_required: cs.comment_required && !legacy, proof_required: cs.proof_required && !legacy, legacy };
+  if (n.comment && n.comment.length > 5000) throw new Error("Komen terlalu panjang (maksimum 5000 aksara)");
+  if (n.links.length > 20) throw new Error("Terlalu banyak link (maksimum 20)");
+  for (const l of n.links) if (!/^https?:\/\/\S+$/i.test(l)) throw new Error(`Link tidak sah: ${l} (mesti bermula dengan http:// atau https://)`);
+  if ((!old || n.comment !== old.comment) && n.comment && !cs.use_comment) throw new Error("Ruangan komen tidak diaktifkan untuk tugasan ini");
+  if ((!old || n.links.join() !== old.links.join()) && n.links.length) {
+    if (!cs.use_proof) throw new Error("Ruangan link tidak diaktifkan untuk tugasan ini");
+    if (!cs.proof_multi && n.links.length > 1) throw new Error("Tugasan ini hanya menerima satu link");
+  }
+  if ((!old || n.ticked !== old.ticked) && n.ticked && !(cs.use_check || n.rules.use_check)) throw new Error("Checkbox tidak diaktifkan untuk tugasan ini");
+  n.completed = completion(effectiveRules(t, n), n);
+  if (!old && legacy) { const i = st.info.get(k) || {};
+    st.hist.push({ id: st.hist.length + 1, submission_id: n.id, task_id, date, action: "legacy", ticked: true, completed: true, filled_by: i.done_by, filled_at: i.done_at, changed_by: ME.id, changed_at: now }); }
+  if (old && (old.ticked !== n.ticked || old.comment !== n.comment || old.links.join() !== n.links.join() || old.completed !== n.completed))
+    st.hist.push({ id: st.hist.length + 1, submission_id: old.id, task_id, date, action: "update", ticked: old.ticked, comment: old.comment,
+      links: old.links, completed: old.completed, filled_by: old.updated_by || old.submitted_by, filled_at: old.updated_at || old.submitted_at, changed_by: ME.id, changed_at: now });
+  st.subs.set(k, n);
+  if (n.completed) { if (!st.checks.has(k)) { st.checks.add(k); st.info.set(k, { done_by: ME.id, done_at: now }); } }
+  else { st.checks.delete(k); st.info.delete(k); }
+  return { ...n, links: [...n.links] };
+}
+
+const demoHasRecords = (st, tid) => [...st.checks].some(k => k.startsWith(tid + "|")) || [...st.subs.values()].some(x => x.task_id === tid) || st.hist.some(h => h.task_id === tid);
+
 function seed() {
   let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
   const T = today();
@@ -248,24 +365,31 @@ function seed() {
   const m3 = { id: uid(), name: "Hafiy", role: "Affiliate Shopee", start_date: addDays(T, -45), end_date: null, active: true };
   const tasks = []; let n = 0;
   const add = (m, section, title, o = {}) => tasks.push({ id: uid(), member_id: m.id, section, title, link: o.link || "", time: o.time || "",
-    days: o.days || [1, 2, 3, 4, 5, 6], sort: n++, active: true, start_date: m.start_date });
+    days: o.days || [1, 2, 3, 4, 5, 6], sort: n++, active: true, start_date: m.start_date,
+    use_check: true, use_comment: false, comment_required: false, use_proof: false, proof_required: false, proof_multi: false, ...(o.inp || {}) });
+  const CHK_LINK = { use_proof: true };                                                   // Checkbox + link optional
+  const CHK_KOMEN = { use_comment: true };                                                // Checkbox + komen optional
+  const CHK_LINKS_W = { use_proof: true, proof_required: true, proof_multi: true };       // Checkbox + banyak link (wajib)
+  const KOMEN_W_LINK = { use_check: false, use_comment: true, comment_required: true, use_proof: true };   // Komen wajib + link, tanpa checkbox
+  const LINK_W = { use_check: false, use_proof: true, proof_required: true };             // Link sahaja (wajib)
+  const ALL_W = { use_comment: true, comment_required: true, use_proof: true, proof_multi: true };        // Checkbox + komen wajib + link
   ["Cinta Suami Isteri", "Hamil Dalam 3 Bulan", "Kelab Soal Jawab Ibu & Bakal Ibu Comel", "Kelab Ikhtiar Hamil", "Cerita Cinta Halal",
    "Kelab Wanita Ibu Isteri Malaysia", "Dapur Simple Viral", "Bahagia Itu Kita", "Cerita Dalam Rumah", "Cinta Sampai Syurga"]
     .forEach(t => add(m1, "Posting Page 1:00 PM", t, { time: "1:00 PM" }));
   ["Cinta Suami Isteri", "Rumahtangga Bahagia Selamanya", "Hamil Dalam 3 Bulan", "Cahaya Mata", "Suami Isteri Wanita Ibu Bahagia",
    "Saya Sayang Suami Saya", "Resepi Viral", "Baby Comel", "Dapur Santai", "Realiti Kehidupan", "Pejuang 2 Garis", "Pelukan Si Kecil"]
-    .forEach(t => add(m1, "Story Khind JR BP10", t));
+    .forEach(t => add(m1, "Story Khind JR BP10", t, { inp: CHK_LINK }));
   ["Cerita Cinta Halal", "Kelab Soal Jawab Ibu & Bakal Ibu Comel", "Kelab Wanita Ibu Isteri Malaysia"]
     .forEach(t => add(m1, "Komen Affiliate", t));
-  add(m1, "Gula Melaka", "20 Affiliate TRB Gula Melaka", { days: [1, 4, 6] });
-  add(m1, "Video Resepi", "Dapur Simple Viral (video resepi)", { time: "11:30 AM" });
+  add(m1, "Gula Melaka", "20 Affiliate TRB Gula Melaka", { days: [1, 4, 6], inp: ALL_W });
+  add(m1, "Video Resepi", "Dapur Simple Viral (video resepi)", { time: "11:30 AM", inp: LINK_W });
   ["trbmarketing", "melakafoodiee", "ceoofbajet", "rimbabydking", "bosskj88"]
-    .forEach(u => add(m1, "TikTok Komen", "@" + u, { link: "https://www.tiktok.com/@" + u, days: [1, 3, 5] }));
+    .forEach(u => add(m1, "TikTok Komen", "@" + u, { link: "https://www.tiktok.com/@" + u, days: [1, 3, 5], inp: CHK_KOMEN }));
   add(m2, "Livestream", "Live sesi pagi (2 jam)", { time: "10:00 AM" });
   add(m2, "Livestream", "Live sesi malam (2 jam)", { time: "9:00 PM" });
   add(m2, "Livestream", "Post teaser live di FB & TikTok", { time: "Sebelum live" });
-  add(m2, "Laporan", "Hantar report jualan live", { days: [1, 2, 3, 4, 5, 6, 0] });
-  add(m3, "Shopee", "10 Video Shopee");
+  add(m2, "Laporan", "Hantar report jualan live", { days: [1, 2, 3, 4, 5, 6, 0], inp: KOMEN_W_LINK });
+  add(m3, "Shopee", "10 Video Shopee", { inp: CHK_LINKS_W });
   add(m3, "Shopee", "Update link affiliate produk baru", { days: [1, 4] });
   const stale = new Set([tasks[15].id, tasks[31].id, tasks[37].id]);
   const iso = (dd, h) => new Date(parse(dd).getTime() + h * 36e5).toISOString();
@@ -277,7 +401,13 @@ function seed() {
     { id: "u-new1", full_name: "Nurul Aina", email: "nurulaina@gmail.com", role: "staff", status: "pending", member_id: null, created_at: iso(T, 8) },
     { id: "u-new2", full_name: "Faris", email: "faris.trb@gmail.com", role: "staff", status: "pending", member_id: null, created_at: iso(addDays(T, -1), 15) },
   ];
-  const info = new Map();
+  const info = new Map(), subs = new Map();
+  const fakeSub = (t, d, by, at, full) => {
+    const s = { id: uid(), task_id: t.id, date: d, ticked: t.use_check && true, comment: null, links: [], submitted_by: by, submitted_at: at, updated_by: null, updated_at: null };
+    if (t.use_comment && (t.comment_required || full)) s.comment = t.title.startsWith("@") ? "Dah komen 5 video terbaru" : t.section === "Laporan" ? "Jualan live: RM2,340 · 18 order · 2 jam" : "Siap, semua dah post";
+    if (t.use_proof && (t.proof_required || full)) s.links = t.proof_multi ? ["https://www.tiktok.com/@trbmarketing/video/1", "https://www.tiktok.com/@trbmarketing/video/2"] : ["https://www.facebook.com/story/" + d.replaceAll("-", "")];
+    s.completed = true; s.legacy = false; s.rules = { ...inputSettings(t), legacy: false }; return s;
+  };
   const checks = new Set(), all = [m1, m2, m3];
   for (let i = 70; i >= 0; i--) {
     const d = addDays(T, -i), dow = parse(d).getDay();
@@ -290,11 +420,18 @@ function seed() {
       if (rnd() < p) {
         const k = t.id + "|" + d; checks.add(k);
         const by = users.find(u => u.member_id === t.member_id && rnd() < 0.9) || users[0];
-        info.set(k, { done_by: by.id, done_at: iso(d, 9 + Math.floor(rnd() * 10)) });
+        const at = iso(d, 9 + Math.floor(rnd() * 10));
+        info.set(k, { done_by: by.id, done_at: at });
+        if (t.use_comment || t.use_proof) subs.set(k, fakeSub(t, d, by.id, at, rnd() < 0.5));
       }
     }
   }
-  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks, info, users };
+  // contoh "belum lengkap" hari ini: ditick tapi komen wajib belum diisi
+  const g = tasks.find(t => t.title.startsWith("20 Affiliate")), tk = g.id + "|" + T;
+  if (g.days.includes(parse(T).getDay())) { checks.delete(tk); info.delete(tk);
+    subs.set(tk, { id: uid(), task_id: g.id, date: T, ticked: true, comment: null, links: [], completed: false, legacy: false, rules: { ...inputSettings(g), legacy: false },
+      submitted_by: "u-haziq", submitted_at: iso(T, 10), updated_by: null, updated_at: null }); }
+  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks, info, users, subs, hist: [] };
 }
 
 // ---------- state ----------
@@ -302,6 +439,8 @@ let api, sb = null;
 let ME = null;            // profile akaun yang login: {id, full_name, email, role, status, member_id}
 let RECOVERY = false;     // true bila user buka link reset password
 const S = { members: [], tasks: [], done: new Set(), info: new Map(), people: new Map(), users: [], ufilter: "pending",
+  subs: new Map(), subRange: null, drafts: new Map(), open: new Set(), hist: new Map(), conflict: new Set(),
+  archTasks: [], archMembers: [], archView: null, archRec: null,
   range: null, tab: "today", member: "", date: today(),
   week: mondayOf(today()), stale: 3, editTask: null, editMember: null, bulk: false, manageMember: null };
 
@@ -327,11 +466,20 @@ async function ensure(f, t) {
   S.info = new Map(rows.map(r => [r.task_id + "|" + r.date, { by: r.done_by, at: r.done_at }]));
   S.range = [f, t];
 }
+// isian (komen / link) dimuat ikut julat yang sedang dilihat sahaja (jimat data)
+async function ensureSubs(f, t) {
+  if (S.subRange && f >= S.subRange[0] && t <= S.subRange[1]) return;
+  const rows = await api.subs(f, t);
+  for (const r of rows) S.subs.set(r.task_id + "|" + r.date, r);
+  const R = S.subRange, touching = R && !(t < addDays(R[0], -1) || f > addDays(R[1], 1));
+  S.subRange = touching ? [f < R[0] ? f : R[0], t > R[1] ? t : R[1]] : [f, t];   // hanya gabung julat yang bersambung
+}
 async function loadAll() {
-  [S.members, S.tasks] = await Promise.all([api.members(), api.tasks()]);
-  sortAll();
-  S.range = null;
+  const [ms, ts] = await Promise.all([api.members(), api.tasks()]);
+  setMembers(ms); setTasks(ts);
+  S.range = null; S.subRange = null; S.subs = new Map();
   await ensure(addDays(today(), -120), addDays(today(), 7));
+  await ensureSubs(addDays(mondayOf(today()), -7), addDays(today(), 7));
   try { S.people = new Map((await api.people()).map(p => [p.id, p.full_name])); } catch { S.people = new Map(); }
   if (!can.manage()) S.member = ME.member_id || "";
   else if (!S.member || !S.members.some(m => m.id === S.member)) S.member = S.members.find(m => m.active)?.id || "";
@@ -342,10 +490,73 @@ const whoTxt = (t, d) => {
   const at = i.at ? new Date(i.at) : null;
   return `${nm}${at ? ` · ${at.getDate()}/${at.getMonth() + 1} ${pad(at.getHours())}:${pad(at.getMinutes())}` : ""}`;
 };
+// ---------- v3: tetapan input tugasan ----------
+const inputSettings = t => ({ use_check: t.use_check !== false, use_comment: !!t.use_comment, comment_required: !!(t.use_comment && t.comment_required),
+  use_proof: !!t.use_proof, proof_required: !!(t.use_proof && t.proof_required), proof_multi: !!(t.use_proof && t.proof_multi) });
+const hasInputs = t => !!(t.use_comment || t.use_proof);
+// Peraturan BERKESAN untuk satu rekod (sama dengan server):
+//  • rekod sedia ada → peraturan DIBEKUKAN semasa ia dicipta (rules); syarat wajib digugurkan jika ruangan kini OFF
+//  • tiada rekod tapi tarikh sudah ditick dalam v2 → "tick lama": cukup dengan tick
+//  • selain itu → tetapan tugasan semasa
+function effectiveRules(t, s, d) {
+  const cs = inputSettings(t);
+  if (s && s.rules) return { use_check: !!s.rules.use_check, comment_required: !!s.rules.comment_required && cs.use_comment,
+    proof_required: !!s.rules.proof_required && cs.use_proof, legacy: !!s.legacy };
+  if (!s && d && isDone(t, d)) return { use_check: true, comment_required: false, proof_required: false, legacy: true };
+  return { use_check: cs.use_check, comment_required: cs.comment_required, proof_required: cs.proof_required, legacy: false };
+}
+function completion(r, s) {
+  const hc = !!((s.comment || "") + "").trim(), hl = (s.links || []).some(x => x.trim());
+  const ok = !(r.comment_required && !hc) && !(r.proof_required && !hl);
+  return r.use_check ? ok && !!s.ticked : ok && (hc || hl);
+}
+function ruleTxt(i) {
+  if (!i.use_check && !i.use_comment && !i.use_proof) return "⚠️ Sekurang-kurangnya satu input mesti ON.";
+  const p = [];
+  if (i.use_check) p.push("tick checkbox");
+  if (i.comment_required) p.push("isi komen");
+  if (i.proof_required) p.push("isi link bukti");
+  if (!i.use_check && !p.length) p.push("hantar sekurang-kurangnya satu isian");
+  return `Dikira <b>selesai</b> bila: ${p.join(" + ")}.`;
+}
+// Draf: nilai yang sedang ditaip + nilai ASAS (yang dilihat semasa mula edit) + tanda ruangan yang diubah
+function draftOf(t, d) {
+  const k = t.id + "|" + d, s = S.subs.get(k);
+  let dr = S.drafts.get(k);
+  if (!dr) {
+    dr = { comment: s?.comment ?? "", links: s?.links?.length ? [...s.links] : [""],
+      baseC: s?.comment ?? null, baseL: s?.links ? [...s.links] : [], dirtyC: false, dirtyL: false };
+    S.drafts.set(k, dr);
+  }
+  return dr;
+}
+// nilai semasa = draf (belum simpan) ATAU rekod tersimpan
+function cur(t, d) {
+  const k = t.id + "|" + d, s = S.subs.get(k), dr = S.drafts.get(k);
+  return { ticked: s ? !!s.ticked : isDone(t, d),
+    comment: dr?.dirtyC ? dr.comment : (s?.comment ?? ""),
+    links: dr?.dirtyL ? [...dr.links] : (s?.links?.length ? [...s.links] : []) };
+}
+function missingList(t, c, r) {
+  const m = [];
+  if (r.use_check && !c.ticked) m.push("tick");
+  if (r.comment_required && !c.comment.trim()) m.push("komen");
+  if (r.proof_required && !c.links.some(x => x.trim())) m.push("link");
+  if (!r.use_check && !m.length && !c.comment.trim() && !c.links.some(x => x.trim())) m.push("isian");
+  return m;
+}
+const nmOf = id => !id ? "—" : id === ME?.id ? "Anda" : S.people.get(id) || "Pengguna lain";
+const fmtDT = iso => { const x = new Date(iso); return `${x.getDate()}/${x.getMonth() + 1}/${x.getFullYear()} ${pad(x.getHours())}:${pad(x.getMinutes())}`; };
+const inputBadges = t => { const i = inputSettings(t); return [i.use_check ? `<span class="chip inp" title="Checkbox">☑ Tick</span>` : "",
+  i.use_comment ? `<span class="chip inp" title="Komen ${i.comment_required ? "wajib" : "optional"}">💬 Komen${i.comment_required ? "*" : ""}</span>` : "",
+  i.use_proof ? `<span class="chip inp" title="Link ${i.proof_required ? "wajib" : "optional"}${i.proof_multi ? ", boleh banyak" : ""}">🔗 Link${i.proof_required ? "*" : ""}${i.proof_multi ? "+" : ""}</span>` : ""].join(" "); };
 const sortAll = () => {
   S.members.sort((a, b) => a.name.localeCompare(b.name));
   S.tasks.sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 };
+// rekod yang diarkibkan diasingkan: tidak muncul dalam checklist/grid/ringkasan/urus, hanya dalam tab Arkib
+function setTasks(all) { S.tasks = all.filter(t => !t.archived_at); S.archTasks = all.filter(t => t.archived_at); sortAll(); }
+function setMembers(all) { S.members = all.filter(m => !m.archived_at); S.archMembers = all.filter(m => m.archived_at); sortAll(); }
 const upd = (arr, o) => { const i = arr.findIndex(x => x.id === o.id); i < 0 ? arr.push(o) : (arr[i] = o); };
 const nextSort = () => S.tasks.reduce((mx, t) => Math.max(mx, t.sort ?? 0), 0) + 1;
 
@@ -432,15 +643,60 @@ function vToday() {
   for (const g of grouped(list)) {
     h += `<div class="card"><h2>${esc(g.m.name)}<small>${esc(g.m.role || "")}</small></h2>`;
     for (const s of g.secs) {
-      h += `<h3>${esc(s.name)}</h3><div class="tlist">` + s.tasks.map(t => {
-        const ok = isDone(t, d), late = !ok && d < T;
-        return `<label class="trow ${ok ? "ok" : ""} ${late ? "late" : ""}"><input type="checkbox" data-chk="${t.id}" data-d="${d}" ${ok ? "checked" : ""}>
-          <span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}${late ? `<span class="chip bad">Tertinggal</span>` : ""}${ok ? `<span class="whotick">✓ ${esc(whoTxt(t, d))}</span>` : ""}${link(t)}</label>`;
-      }).join("") + `</div>`;
+      h += `<h3>${esc(s.name)}</h3><div class="tlist">` + s.tasks.map(t => taskRow(t, d, T)).join("") + `</div>`;
     }
     h += `</div>`;
   }
   return h;
+}
+
+function taskRow(t, d, T) {
+  const k = t.id + "|" + d, ok = isDone(t, d), late = !ok && d < T, i = inputSettings(t);
+  const base = `<span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}`;
+  if (!hasInputs(t) && i.use_check)   // Checkbox sahaja: sama seperti sebelum ini
+    return `<label class="trow ${ok ? "ok" : ""} ${late ? "late" : ""}"><input type="checkbox" data-chk="${t.id}" data-d="${d}" ${ok ? "checked" : ""}>
+      ${base}${late ? `<span class="chip bad">Tertinggal</span>` : ""}${ok ? `<span class="whotick">✓ ${esc(whoTxt(t, d))}</span>` : ""}${link(t)}</label>`;
+  const s = S.subs.get(k), open = S.open.has(k), c = cur(t, d), r = effectiveRules(t, s, d);
+  const partial = !ok && !!s && (s.ticked || !!s.comment || (s.links || []).length > 0);
+  const tick = (i.use_check || r.use_check) ? `<input type="checkbox" data-chk="${t.id}" data-d="${d}" ${c.ticked ? "checked" : ""}>` : `<span class="notick" title="Tiada checkbox: selesai bila input dihantar">📝</span>`;
+  const status = ok ? `<span class="whotick">✓ ${esc(whoTxt(t, d))}</span>`
+    : partial ? `<span class="chip warn">Belum lengkap: ${missingList(t, c, r).join(", ")}</span>`
+    : late ? `<span class="chip bad">Tertinggal</span>` : "";
+  return `<div class="trow ${ok ? "ok" : ""} ${late && !partial ? "late" : ""} ${partial ? "partial" : ""} ${open ? "open" : ""}">${tick}${base}${inputBadges(t)}${status}${link(t)}
+    <button type="button" class="ibtn" data-act="panel" data-k="${k}">${open ? "Tutup ▴" : s ? "Lihat ▾" : "Isi ▾"}</button></div>${open ? panel(t, d) : ""}`;
+}
+function panel(t, d) {
+  const k = t.id + "|" + d, i = inputSettings(t), s = S.subs.get(k), r = effectiveRules(t, s, d);
+  const dr = S.drafts.get(k), c = cur(t, d);
+  const cText = dr ? dr.comment : c.comment;
+  let links = dr ? dr.links : (c.links.length ? c.links : [""]);
+  if (!links.length) links = [""];
+  if (!i.proof_multi) links = links.slice(0, 1);
+  let h = `<div class="ipanel">`;
+  if (S.conflict.has(k)) h += `<div class="note bad">⚠️ Rekod ini baru dikemas kini oleh pengguna lain. Nilai terkini di server:
+    ${s?.comment ? `<br>💬 “${esc(s.comment)}”` : "<br>💬 (tiada komen)"}${s?.links?.length ? `<br>🔗 ${s.links.map(esc).join(", ")}` : "<br>🔗 (tiada link)"}
+    <br>Isian anda masih di bawah. Semak, kemudian tekan simpan sekali lagi jika mahu menggantikannya.</div>`;
+  if (r.legacy) h += `<div class="note info">Tarikh ini sudah ditick sebelum tetapan input diubah. Ia kekal selesai; komen/link di sini adalah tambahan.</div>`;
+  if (i.use_comment) h += `<label><span>💬 Komen ${r.comment_required ? `<span class="req">* wajib</span>` : "(optional)"}</span>
+    <textarea data-f="comment" data-k="${k}" maxlength="5000" placeholder="Catatan kerja...">${esc(cText)}</textarea></label>`;
+  if (i.use_proof) h += `<div><label>🔗 Link bukti kerja ${r.proof_required ? `<span class="req">* wajib</span>` : "(optional)"}${i.proof_multi ? " · boleh lebih dari satu" : ""}</label>`
+    + links.map((l, j) => `<div class="lrow"><input type="url" data-f="link" data-k="${k}" data-i="${j}" value="${esc(l)}" placeholder="https://...">${i.proof_multi && links.length > 1 ? `<button type="button" class="ghost sm" data-act="rmlink" data-k="${k}" data-i="${j}" title="Buang">✕</button>` : ""}</div>`).join("")
+    + (i.proof_multi && links.length < 20 ? `<div style="margin-top:6px"><button type="button" class="ghost sm" data-act="addlink" data-k="${k}">+ Tambah link</button></div>` : "") + `</div>`;
+  h += `<div class="rulehint">${ruleTxt({ ...r, use_comment: i.use_comment, use_proof: i.use_proof })}${r.use_check ? " Tick pada checkbox di atas." : ""}${s?.rules && !r.legacy ? " <span class='mute'>(peraturan semasa rekod ini dicipta)</span>" : ""}</div>`;
+  h += `<div class="btns"><button type="button" data-act="savesub" data-k="${k}">${r.use_check ? "Simpan isian" : "Hantar"}</button>
+    ${s ? `<button type="button" class="ghost sm" data-act="hist" data-k="${k}">${S.hist.has(k) ? "Sorok sejarah" : "Sejarah"}</button>` : ""}</div>`;
+  if (s) {
+    h += `<div class="meta">Diisi oleh <b>${esc(nmOf(s.submitted_by))}</b> · ${fmtDT(s.submitted_at)}${s.updated_at ? ` · Dikemas kini oleh <b>${esc(nmOf(s.updated_by))}</b> · ${fmtDT(s.updated_at)}` : ""}`;
+    if (!i.use_comment && s.comment) h += `<br>Komen lama (ruangan kini dimatikan): “${esc(s.comment)}”`;
+    if (!i.use_proof && s.links?.length) h += `<br>Link lama (ruangan kini dimatikan): ${s.links.map(l => `<a class="lnk" href="${esc(safeUrl(l))}" target="_blank" rel="noopener">${esc(l)}</a>`).join(", ")}`;
+    h += `</div>`;
+  }
+  if (S.hist.has(k)) {
+    const rows = S.hist.get(k);
+    h += `<div class="hist"><b>Versi terdahulu</b>${rows.length ? rows.map(r => `<div>${fmtDT(r.filled_at)} · <b>${esc(nmOf(r.filled_by))}</b>: ${r.ticked ? "✓ ditick" : "tidak ditick"}${r.comment ? ` · komen: “${esc(r.comment.length > 80 ? r.comment.slice(0, 80) + "…" : r.comment)}”` : ""}${r.links?.length ? ` · ${r.links.length} link` : ""}${r.completed ? " · <span style='color:var(--ok)'>selesai</span>" : ""}
+      <span class="mute">(${r.action === "legacy" ? "tick asal sebelum v3" : r.action === "delete" ? "dipadam" : "diubah"} oleh ${esc(nmOf(r.changed_by))}, ${fmtDT(r.changed_at)})</span></div>`).join("") : `<div class="mute">Tiada perubahan direkodkan.</div>`}</div>`;
+  }
+  return h + `</div>`;
 }
 
 // ---------- view: grid minggu (macam Google Sheet) ----------
@@ -449,7 +705,7 @@ function vWeek() {
   const list = tasksFor(S.member).filter(t => days.some(d => scheduled(t, d)));
   let h = `<div class="card"><div class="tools">${memberSel(true)}${weekNav()}</div>
     <div class="legend"><span><i style="background:var(--okbg)"></i>Siap</span><span><i style="background:var(--badbg)"></i>Tertinggal</span>
-    <span><i></i>Belum (klik untuk tanda)</span><span><i style="background:repeating-linear-gradient(45deg,#fafafa,#fafafa 3px,#e5e7eb 3px,#e5e7eb 6px)"></i>Tak dijadualkan</span></div></div>`;
+    <span><i style="background:var(--warnbg)"></i>Belum lengkap (…)</span><span><i></i>Belum (klik untuk tanda / isi)</span><span><i style="background:repeating-linear-gradient(45deg,#fafafa,#fafafa 3px,#e5e7eb 3px,#e5e7eb 6px)"></i>Tak dijadualkan</span></div></div>`;
   if (!list.length) return h + `<div class="card empty">Tiada task untuk minggu ni.</div>`;
   h += `<div class="card scroll"><table class="grid"><thead><tr><th class="tcol">Task</th>${days.map(d => `<th class="${d === T ? "today" : ""}">${DS[parse(d).getDay()]}<br><small>${dm(d)}</small></th>`).join("")}<th>Siap</th></tr></thead><tbody>`;
   const col = days.map(() => [0, 0]);
@@ -462,10 +718,16 @@ function vWeek() {
         const cells = days.map((d, i) => {
           if (!scheduled(t, d)) return `<td class="na"></td>`;
           const ok = isDone(t, d); b++; col[i][1]++; if (ok) { a++; col[i][0]++; }
-          const cls = ok ? "ok" : d < T ? "miss" : "todo";
-          return `<td class="cell ${cls} ${d === T ? "now" : ""}" data-t="${t.id}" data-d="${d}" title="${DN[parse(d).getDay()]} ${dm(d)}${ok ? " — ditick oleh " + esc(whoTxt(t, d)) : ""}">${ok ? "✓" : d < T ? "✗" : ""}</td>`;
+          const sb_ = S.subs.get(t.id + "|" + d), part = !ok && !!sb_ && (sb_.ticked || !!sb_.comment || (sb_.links || []).length > 0);
+          const needPanel = hasInputs(t) || t.use_check === false;
+          const cls = ok ? "ok" : part ? "part" : d < T ? "miss" : "todo";
+          let tip = `${DN[parse(d).getDay()]} ${dm(d)}${ok ? " — selesai: " + whoTxt(t, d) : part ? " — belum lengkap" : ""}`;
+          if (sb_?.comment) tip += `\nKomen: ${sb_.comment.slice(0, 120)}`;
+          if (sb_?.links?.length) tip += `\n${sb_.links.length} link bukti`;
+          if (needPanel) tip += "\n(klik untuk isi / lihat)";
+          return `<td class="cell ${cls} ${d === T ? "now" : ""}" data-t="${t.id}" data-d="${d}" ${needPanel ? `data-panel="1"` : ""} title="${esc(tip)}">${ok ? "✓" : part ? "…" : d < T ? "✗" : needPanel ? "✎" : ""}</td>`;
         }).join("");
-        h += `<tr><td class="tcol">${esc(t.title)} ${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""} ${link(t)}</td>${cells}<td class="cnt">${a}/${b}</td></tr>`;
+        h += `<tr><td class="tcol">${esc(t.title)} ${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""} ${hasInputs(t) ? inputBadges(t) : ""} ${link(t)}</td>${cells}<td class="cnt">${a}/${b}</td></tr>`;
       }
     }
   }
@@ -523,7 +785,7 @@ function vManage() {
       ${S.editTask ? taskForm(S.editTask) : ""}${S.bulk ? bulkForm() : ""}`;
     if (!ts.length && !S.editTask && !S.bulk) h += `<p class="mute">Belum ada task. Klik <b>+ Task</b> atau <b>+ Tambah pukal</b> (paste senarai nama page sekali gus).</p>`;
     for (const g of grouped(ts)) for (const s of g.secs) {
-      h += `<h3>${esc(s.name)}</h3><table class="tbl fix"><tbody>${s.tasks.map(t => `<tr class="${t.active ? "" : "off"}"><td>${esc(t.title)} ${link(t)}</td><td class="mute">${esc(t.time || "")}</td><td class="mute">${daysTxt(t.days || [])}</td>
+      h += `<h3>${esc(s.name)}</h3><table class="tbl fix"><tbody>${s.tasks.map(t => `<tr class="${t.active ? "" : "off"}"><td>${esc(t.title)} ${link(t)}<div style="margin-top:3px">${inputBadges(t)}</div></td><td class="mute">${esc(t.time || "")}</td><td class="mute">${daysTxt(t.days || [])}</td>
         <td class="r"><button class="ghost sm" data-act="edittask" data-t="${t.id}">Edit</button> <button class="ghost sm danger" data-act="deltask" data-t="${t.id}">Padam</button></td></tr>`).join("")}</tbody></table>`;
     }
     h += `</div>`;
@@ -539,19 +801,45 @@ const memberForm = m => `<form class="card form" id="memberForm"><h3 style="marg
   ${m.id && can.delMember() ? `<button type="button" class="ghost danger" data-act="delmember" data-m="${m.id}">Padam</button>` : ""}</div></form>`;
 const daysPick = sel => `<div class="days">${WEEK_ORDER.map(d => `<label><input type="checkbox" name="days" value="${d}" ${sel.includes(d) ? "checked" : ""}>${DS[d]}</label>`).join("")}</div>`;
 const secList = () => `<datalist id="secs">${[...new Set(S.tasks.map(t => t.section))].map(s => `<option value="${esc(s)}">`).join("")}</datalist>`;
+const inputPick = t => { const i = inputSettings(t); return `<fieldset class="inputs"><legend>Input tugasan (boleh ON/OFF berasingan)</legend>
+  <div class="togrow"><label class="tog"><input type="checkbox" name="use_check" ${i.use_check ? "checked" : ""}> ☑ Checkbox (tick selesai)</label></div>
+  <div class="togrow"><label class="tog"><input type="checkbox" name="use_comment" ${i.use_comment ? "checked" : ""}> 💬 Komen (catatan staff)</label>
+    <select name="comment_required" ${i.use_comment ? "" : "disabled"}><option value="0">Optional</option><option value="1" ${i.comment_required ? "selected" : ""}>Wajib</option></select></div>
+  <div class="togrow"><label class="tog"><input type="checkbox" name="use_proof" ${i.use_proof ? "checked" : ""}> 🔗 Link bukti kerja</label>
+    <select name="proof_required" ${i.use_proof ? "" : "disabled"}><option value="0">Optional</option><option value="1" ${i.proof_required ? "selected" : ""}>Wajib</option></select>
+    <label class="inline ${i.use_proof ? "" : "dis"}"><input type="checkbox" name="proof_multi" ${i.proof_multi ? "checked" : ""} ${i.use_proof ? "" : "disabled"}> Boleh lebih dari satu link</label></div>
+  <div class="rulehint" data-rule>${ruleTxt(i)}</div>
+  ${t.id ? `<p class="mute" style="margin:0;font-size:12px">Menukar tetapan tidak memadam rekod lama. Hanya isian baharu ikut tetapan baharu.</p>` : ""}
+</fieldset>`; };
+function readInputs(fd) {
+  const use_comment = fd.has("use_comment"), use_proof = fd.has("use_proof");
+  return { use_check: fd.has("use_check"), use_comment, comment_required: use_comment && fd.get("comment_required") === "1",
+    use_proof, proof_required: use_proof && fd.get("proof_required") === "1", proof_multi: use_proof && fd.has("proof_multi") };
+}
+function syncInputForm(form) {
+  const i = readInputs(new FormData(form));
+  form.querySelector('[name="comment_required"]').disabled = !i.use_comment;
+  form.querySelector('[name="proof_required"]').disabled = !i.use_proof;
+  form.querySelector('[name="proof_multi"]').disabled = !i.use_proof;
+  form.querySelector('[name="proof_multi"]').closest("label").classList.toggle("dis", !i.use_proof);
+  const r = form.querySelector("[data-rule]"); r.innerHTML = ruleTxt(i);
+  r.classList.toggle("bad", !i.use_check && !i.use_comment && !i.use_proof);
+}
 const taskForm = t => `<form class="form sub" id="taskForm"><h3 style="margin-top:0">${t.id ? "Edit" : "Tambah"} task</h3>
   <div class="row2"><label>Bahagian<input name="section" list="secs" required value="${esc(t.section || "")}" placeholder="cth: Story Khind JR BP10"></label>
   <label>Masa (pilihan)<input name="time" value="${esc(t.time || "")}" placeholder="1:00 PM"></label></div>
   <label>Nama task / page<input name="title" required value="${esc(t.title || "")}"></label>
-  <label>Link (pilihan)<input name="link" value="${esc(t.link || "")}" placeholder="https://www.facebook.com/..."></label>
+  <label>Link rujukan page (pilihan)<input name="link" value="${esc(t.link || "")}" placeholder="https://www.facebook.com/..."></label>
+  ${inputPick(t)}
   <label>Hari kena buat</label>${daysPick(t.days || [1, 2, 3, 4, 5, 6])}
   <div class="row2"><label>Mula dikira dari<input type="date" name="start_date" value="${t.start_date || today()}"></label>
   <label class="inline"><input type="checkbox" name="active" ${t.active !== false ? "checked" : ""}> Aktif</label></div>
   <div class="btns"><button type="submit">Simpan</button><button type="button" class="ghost" data-act="cancel">Batal</button></div>${secList()}</form>`;
 const bulkForm = () => `<form class="form sub" id="bulkForm"><h3 style="margin-top:0">Tambah pukal</h3>
-  <p class="mute" style="margin:0">Satu task satu baris. Nak letak link, tambah selepas tanda <b>|</b><br>cth: <code>Cinta Suami Isteri | https://www.facebook.com/...</code></p>
+  <p class="mute" style="margin:0">Satu task satu baris. Nak letak link, tambah selepas tanda <b>|</b><br>cth: <code>Cinta Suami Isteri | https://www.facebook.com/...</code> (link rujukan page)</p>
   <div class="row2"><label>Bahagian<input name="section" list="secs" required placeholder="cth: Posting Page"></label><label>Masa (pilihan)<input name="time" placeholder="1:00 PM"></label></div>
   <label>Senarai task<textarea name="lines" rows="8" required></textarea></label>
+  ${inputPick({})}
   <label>Hari kena buat</label>${daysPick([1, 2, 3, 4, 5, 6])}
   <label>Mula dikira dari<input type="date" name="start_date" value="${today()}"></label>
   <div class="btns"><button type="submit">Tambah</button><button type="button" class="ghost" data-act="cancel">Batal</button></div>${secList()}</form>`;
@@ -576,10 +864,11 @@ function vUsers() {
       ? `<select data-role-for="${u.id}">${[...new Set([...roleOptions(), u.role])].map(r => `<option value="${r}" ${r === u.role ? "selected" : ""} ${roleOptions().includes(r) ? "" : "disabled"}>${ROLE_LABEL[r]}</option>`).join("")}</select>`
       : `<span class="rb ${u.role}">${ROLE_LABEL[u.role]}</span>`;
     const canLink = act || self;
-    const mName = u.member_id ? (S.members.find(m => m.id === u.member_id)?.name || "(member dipadam)") : "";
+    const archM = S.archMembers.find(m => m.id === u.member_id);
+    const mName = u.member_id ? (S.members.find(m => m.id === u.member_id)?.name || (archM ? archM.name + " (diarkib)" : "(member dipadam)")) : "";
     const memberCell = canLink
       ? `<select data-link-for="${u.id}"><option value="">— Tiada —</option>${S.members.filter(m => !linked.has(m.id) || linked.get(m.id) === u.id)
-          .map(m => `<option value="${m.id}" ${m.id === u.member_id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>
+          .map(m => `<option value="${m.id}" ${m.id === u.member_id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}${archM ? `<option value="${archM.id}" selected>${esc(mName)}</option>` : ""}</select>
          ${u.member_id ? "" : `<button class="ghost sm" data-act="mkmember" data-u="${u.id}" title="Cipta rekod member baharu guna nama akaun ini">+ Cipta</button>`}`
       : esc(mName) || `<span class="mute">—</span>`;
     let btns = "";
@@ -595,37 +884,122 @@ function vUsers() {
   return h + `</tbody></table></div>`;
 }
 
+// ---------- view: arkib (Owner & Admin) — rekod hanya boleh dibaca ----------
+function vArchive() {
+  const am = S.archMembers, at = S.archTasks;
+  const mName = id => (S.members.find(m => m.id === id) || S.archMembers.find(m => m.id === id))?.name || "—";
+  let h = `<div class="card"><h2 style="margin:0 0 6px">🗄️ Arkib</h2><p class="mute" style="margin:0">Tugasan & member yang sudah ada rekod kerja <b>tidak dipadam kekal</b>. Ia diarkibkan di sini supaya sejarah audit kekal.
+    Rekod arkib hanya boleh dibaca. Tekan <b>Pulihkan</b> untuk menggunakannya semula.</p></div>`;
+  h += `<div class="card"><h3 style="margin-top:0">Member diarkib (${am.length})</h3>` + (am.length ? `<table class="tbl"><thead><tr><th>Member</th><th>Diarkib pada / oleh</th><th></th></tr></thead><tbody>${am.map(m =>
+    `<tr><td><b>${esc(m.name)}</b> <span class="mute">${esc(m.role || "")}</span></td><td class="mute">${fmtDT(m.archived_at)} · ${esc(nmOf(m.archived_by))}</td>
+     <td class="r"><button class="ghost sm" data-act="restorem" data-m="${m.id}">Pulihkan</button></td></tr>`).join("")}</tbody></table>` : `<p class="mute">Tiada.</p>`) + `</div>`;
+  h += `<div class="card"><h3 style="margin-top:0">Tugasan diarkib (${at.length})</h3>` + (at.length ? `<table class="tbl"><thead><tr><th>Member</th><th>Bahagian</th><th>Tugasan</th><th>Diarkib pada / oleh</th><th></th></tr></thead><tbody>${at.map(t =>
+    `<tr><td>${esc(mName(t.member_id))}</td><td>${esc(t.section)}</td><td>${esc(t.title)}<div style="margin-top:3px">${inputBadges(t)}</div></td>
+     <td class="mute">${fmtDT(t.archived_at)} · ${esc(nmOf(t.archived_by))}</td>
+     <td class="r" style="white-space:nowrap"><button class="ghost sm" data-act="archrec" data-t="${t.id}">${S.archView === t.id ? "Sorok rekod" : "Lihat rekod"}</button>
+       <button class="ghost sm" data-act="restoret" data-t="${t.id}">Pulihkan</button></td></tr>
+     ${S.archView === t.id ? `<tr><td colspan="5" style="background:#fafafa">${archRecords()}</td></tr>` : ""}`).join("")}</tbody></table>` : `<p class="mute">Tiada.</p>`) + `</div>`;
+  return h;
+}
+function archRecords() {
+  const R = S.archRec; if (!R) return `<div class="mute">Memuatkan rekod…</div>`;
+  const sub = new Map(R.subs.map(x => [x.date, x])), chk = new Map(R.checks.map(c => [c.date, c]));
+  const dates = [...new Set([...chk.keys(), ...sub.keys()])].sort().reverse();
+  let h = `<b>Rekod kerja (${dates.length} tarikh)</b>`;
+  h += dates.length ? `<table class="tbl" style="font-size:13px"><thead><tr><th>Tarikh</th><th>Status</th><th>Tick</th><th>Komen</th><th>Link</th><th>Diisi oleh</th></tr></thead><tbody>${dates.map(d => {
+    const x = sub.get(d), c = chk.get(d);
+    const by = x ? `${esc(nmOf(x.submitted_by))} · ${fmtDT(x.submitted_at)}${x.updated_at ? `<br><span class="mute">kemas kini: ${esc(nmOf(x.updated_by))} · ${fmtDT(x.updated_at)}</span>` : ""}`
+      : c ? `${esc(nmOf(c.done_by))}${c.done_at ? " · " + fmtDT(c.done_at) : ""} <span class="mute">(tick v2)</span>` : "—";
+    return `<tr><td>${DS[parse(d).getDay()]} ${dm(d)}/${d.slice(0, 4)}</td><td>${c ? `<span class="chip" style="background:var(--okbg);color:var(--ok)">Selesai</span>` : `<span class="chip warn">Belum</span>`}</td>
+      <td>${x ? (x.ticked ? "✓" : "—") : c ? "✓" : "—"}</td><td>${x?.comment ? esc(x.comment) : "—"}</td>
+      <td>${x?.links?.length ? x.links.map(l => `<a class="lnk" href="${esc(safeUrl(l))}" target="_blank" rel="noopener">${esc(l)}</a>`).join("<br>") : "—"}</td><td>${by}</td></tr>`;
+  }).join("")}</tbody></table>` : `<p class="mute">Tiada rekod.</p>`;
+  h += `<div class="hist" style="margin-top:8px"><b>Sejarah perubahan (${R.hist.length})</b>${R.hist.length ? R.hist.map(r => `<div>${dm(r.date)} · ${r.filled_at ? fmtDT(r.filled_at) : "—"} · <b>${esc(nmOf(r.filled_by))}</b>: ${r.ticked ? "✓ ditick" : "tidak ditick"}${r.comment ? ` · komen: “${esc(r.comment.length > 80 ? r.comment.slice(0, 80) + "…" : r.comment)}”` : ""}${r.links?.length ? ` · ${r.links.length} link` : ""}
+    <span class="mute">(${r.action === "legacy" ? "tick asal sebelum v3" : r.action === "delete" ? "dipadam" : "diubah"} oleh ${esc(nmOf(r.changed_by))}, ${fmtDT(r.changed_at)})</span></div>`).join("") : `<div class="mute">Tiada.</div>`}</div>`;
+  return h;
+}
+
 // ---------- render ----------
-const TAB_OK = { today: () => true, week: () => true, summary: () => true, manage: () => can.manage(), users: () => can.users() };
+const TAB_OK = { today: () => true, week: () => true, summary: () => true, manage: () => can.manage(), users: () => can.users(), arkib: () => can.users() };
 function render() {
   if (!TAB_OK[S.tab]()) S.tab = "today";
   document.querySelectorAll("nav button").forEach(b => { b.classList.toggle("on", b.dataset.tab === S.tab); b.hidden = !TAB_OK[b.dataset.tab](); });
-  const v = { today: vToday, week: vWeek, summary: vSummary, manage: vManage, users: vUsers }[S.tab];
+  const v = { today: vToday, week: vWeek, summary: vSummary, manage: vManage, users: vUsers, arkib: vArchive }[S.tab];
   if (!can.manage() && !ME.member_id && S.tab !== "users")
     return ($("#app").innerHTML = `<div class="card empty">Akaun anda dah diluluskan, tapi belum dihubungkan dengan rekod <b>Member</b>.<br>Minta Owner/Admin hubungkan akaun anda di tab Pengurusan Pengguna.</div>`);
-  $("#app").innerHTML = (S.members.length || S.tab === "manage" || S.tab === "users") ? v()
+  $("#app").innerHTML = (S.members.length || ["manage", "users", "arkib"].includes(S.tab)) ? v()
     : `<div class="card empty">Belum ada member. Pergi tab <b>⚙️ Urus Team &amp; Task</b> untuk mula.</div>`;
 }
 function toast(msg, bad) {
   const t = $("#toast"); t.textContent = msg; t.className = "show" + (bad ? " bad" : "");
   clearTimeout(toast.h); toast.h = setTimeout(() => (t.className = ""), 2600);
 }
-async function toggle(tid, d, on) {
-  const k = tid + "|" + d;
-  const prev = S.info.get(k);
-  if (on) { S.done.add(k); S.info.set(k, { by: ME.id, at: new Date().toISOString() }); } else { S.done.delete(k); S.info.delete(k); }
-  render();
-  try { await api.setCheck(tid, d, on); }
+const isConflict = e => e?.code === "PT409" || /KONFLIK/.test(e?.message || "");
+// Simpan ke server melalui RPC atomik. Server tentukan "selesai" & tulis rekod checks.
+async function submit(t, d, params) {
+  const k = t.id + "|" + d, wasDone = S.done.has(k);
+  let saved;
+  try { saved = await api.save(t.id, d, params); }
   catch (e) {
-    if (on) { S.done.delete(k); S.info.delete(k); } else { S.done.add(k); if (prev) S.info.set(k, prev); }
-    render(); toast("Gagal simpan: " + errMsg(e), 1);
+    if (!isConflict(e)) throw e;
+    // KONFLIK: muat nilai terkini; draf pengguna dikekalkan, nilai asas dikemas kini
+    for (const r of await api.subs(d, d)) S.subs.set(r.task_id + "|" + r.date, r);
+    const s = S.subs.get(k), dr = S.drafts.get(k);
+    if (dr) { dr.baseC = s?.comment ?? null; dr.baseL = s?.links ? [...s.links] : []; }
+    if (s) { if (s.completed) S.done.add(k); else { S.done.delete(k); S.info.delete(k); } }
+    S.conflict.add(k); S.open.add(k);
+    throw new Error("Rekod ini baru dikemas kini oleh pengguna lain. Nilai terkini ditunjukkan dalam panel. Semak, kemudian simpan semula.");
   }
+  S.subs.set(k, saved); S.conflict.delete(k);
+  if (saved.completed) { S.done.add(k); if (!wasDone || !S.info.get(k)) S.info.set(k, { by: ME.id, at: new Date().toISOString() }); }
+  else { S.done.delete(k); S.info.delete(k); }
+  S.hist.delete(k);
+  return saved;
+}
+// Parameter dari draf: HANYA ruangan yang diubah, bersama nilai asas (untuk semakan konflik)
+function draftParams(t, d) {
+  const k = t.id + "|" + d, dr = S.drafts.get(k), i = inputSettings(t), p = {};
+  if (!dr) return p;
+  if (dr.dirtyC && i.use_comment) { p.p_set_comment = true; p.p_comment = dr.comment; p.p_base_comment = dr.baseC; }
+  if (dr.dirtyL && i.use_proof) {
+    const links = dr.links.map(x => x.trim()).filter(Boolean);
+    const bad = links.find(l => !/^https?:\/\/\S+$/i.test(l));
+    if (bad) throw new Error(`Link tidak sah: ${bad}. Mesti bermula dengan https://`);
+    if (!i.proof_multi && links.length > 1) throw new Error("Tugasan ini hanya menerima satu link");
+    p.p_set_links = true; p.p_links = links; p.p_base_links = dr.baseL;
+  }
+  return p;
+}
+const clearDraft = (k, p) => { const dr = S.drafts.get(k); if (!dr) return;
+  if (p.p_set_comment) dr.dirtyC = false; if (p.p_set_links) dr.dirtyL = false;
+  if (!dr.dirtyC && !dr.dirtyL) S.drafts.delete(k); };
+async function toggle(tid, d, on) {
+  const t = S.tasks.find(x => x.id === tid); if (!t) return;
+  const k = tid + "|" + d, r = effectiveRules(t, S.subs.get(k), d);
+  if (!inputSettings(t).use_check && !r.use_check) { S.open.add(k); return render(); }
+  if (!hasInputs(t)) {                       // Checkbox sahaja: kemas kini terus (optimistic)
+    const prevD = S.done.has(k), prevI = S.info.get(k);
+    if (on) { S.done.add(k); S.info.set(k, { by: ME.id, at: new Date().toISOString() }); } else { S.done.delete(k); S.info.delete(k); }
+    render();
+    try { await submit(t, d, { p_ticked: on }); }
+    catch (e) { prevD ? S.done.add(k) : S.done.delete(k); prevI ? S.info.set(k, prevI) : S.info.delete(k); toast("Gagal simpan: " + errMsg(e), 1); }
+    return render();
+  }
+  try {
+    const p = { p_ticked: on, ...draftParams(t, d) };   // tick + (jika ada) ruangan yang sedang diedit
+    const saved = await submit(t, d, p);
+    clearDraft(k, p);
+    const s = S.subs.get(k);
+    if (on && !saved.completed) { S.open.add(k); toast("Ditick, tapi belum selesai. Lengkapkan: " + missingList(t, cur(t, d), effectiveRules(t, s, d)).join(", "), 1); }
+    else if (saved.completed) toast("✓ Selesai");
+  } catch (e) { toast((isConflict(e) ? "" : "Gagal simpan: ") + errMsg(e), 1); }
+  render();
 }
 const closeForms = () => { S.editTask = null; S.editMember = null; S.bulk = false; };
 
 // ---------- events ----------
 async function reloadUsers() {
-  [S.users, S.members] = await Promise.all([api.users(), api.members()]); sortAll();
+  const [us, ms] = await Promise.all([api.users(), api.members()]); S.users = us; setMembers(ms);
   const mine = S.users.find(u => u.id === ME.id); if (mine) ME.member_id = mine.member_id;
 }
 document.addEventListener("click", async e => {
@@ -636,7 +1010,16 @@ document.addEventListener("click", async e => {
     return render();
   }
   const cell = e.target.closest("td.cell");
-  if (cell) return toggle(cell.dataset.t, cell.dataset.d, !S.done.has(cell.dataset.t + "|" + cell.dataset.d));
+  if (cell) {
+    const t = S.tasks.find(x => x.id === cell.dataset.t), d = cell.dataset.d;
+    if (cell.dataset.panel) {               // tugasan ada komen/link: buka panel dalam Checklist Harian
+      S.date = d; if (can.manage()) S.member = t.member_id; S.open.add(t.id + "|" + d); S.tab = "today";
+      try { await ensure(addDays(d, -1), d); await ensureSubs(d, d); } catch (err) { toast(errMsg(err), 1); }
+      render(); document.querySelector(".ipanel")?.scrollIntoView({ block: "center" }); return;
+    }
+    const k = t.id + "|" + d, c = S.subs.get(k);
+    return toggle(t.id, d, !(c ? c.ticked : S.done.has(k)));
+  }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act, n = +b.dataset.n;
   // --- skrin log masuk / daftar / lupa kata laluan ---
@@ -651,9 +1034,31 @@ document.addEventListener("click", async e => {
       : { html: "Jika akaun ini wujud dan belum disahkan, email pengesahan baharu telah dihantar. Semak Inbox &amp; folder Spam." });
   }
   try {
-    if (a === "day") { S.date = addDays(S.date, n); await ensure(addDays(S.date, -1), S.date); }
+    if (a === "day") { S.date = addDays(S.date, n); await ensure(addDays(S.date, -1), S.date); await ensureSubs(S.date, S.date); }
     else if (a === "gotoday") S.date = today();
-    else if (a === "wk") { S.week = addDays(S.week, n); await ensure(addDays(S.week, -21), addDays(S.week, 6)); }
+    else if (a === "wk") { S.week = addDays(S.week, n); await ensure(addDays(S.week, -21), addDays(S.week, 6)); await ensureSubs(S.week, addDays(S.week, 6)); }
+    // --- v3: panel isian ---
+    else if (a === "panel") { const k = b.dataset.k; S.open.has(k) ? S.open.delete(k) : S.open.add(k); }
+    else if (a === "addlink" || a === "rmlink") {
+      const k = b.dataset.k, [tid, d] = k.split("|"), t = S.tasks.find(x => x.id === tid), dr = draftOf(t, d);
+      if (a === "addlink") dr.links.push(""); else { dr.links.splice(+b.dataset.i, 1); if (!dr.links.length) dr.links = [""]; }
+      dr.dirtyL = true;
+    }
+    else if (a === "savesub") {
+      const k = b.dataset.k, [tid, d] = k.split("|"), t = S.tasks.find(x => x.id === tid);
+      const p = draftParams(t, d);                       // hanya ruangan yang diubah
+      if (!p.p_set_comment && !p.p_set_links) return toast("Tiada perubahan untuk disimpan.", 1);
+      b.disabled = true;
+      const saved = await submit(t, d, p);
+      clearDraft(k, p);
+      const r = effectiveRules(t, S.subs.get(k), d);
+      if (saved.completed) { toast("✓ Disimpan & selesai"); if (!r.use_check) S.open.delete(k); }
+      else toast("Disimpan. Belum selesai: " + missingList(t, cur(t, d), r).join(", "));
+    }
+    else if (a === "hist") {
+      const k = b.dataset.k, [tid, d] = k.split("|");
+      if (S.hist.has(k)) S.hist.delete(k); else S.hist.set(k, await api.history(tid, d));
+    }
     else if (a === "thiswk") S.week = mondayOf(today());
     else if (a === "openweek") { S.member = b.dataset.m; S.tab = "week"; }
     else if (a === "newmember") { closeForms(); S.editMember = { active: true, start_date: today() }; }
@@ -665,14 +1070,33 @@ document.addEventListener("click", async e => {
     else if (a === "cancel") closeForms();
     else if (a === "deltask") {
       const t = S.tasks.find(x => x.id === b.dataset.t);
-      if (!confirm(`Padam task "${t.title}"? Semua rekod tanda untuk task ni pun akan hilang.`)) return;
-      await api.delTask(t.id); S.tasks = S.tasks.filter(x => x.id !== t.id); toast("Task dipadam");
+      if (!confirm(`Padam task "${t.title}"?\n\nJika task ini sudah ada rekod kerja (tick / komen / link), ia akan DIARKIBKAN, bukan dipadam: semua rekod & sejarah kekal dan boleh dilihat oleh Owner/Admin dalam tab Arkib.\n\nJika belum ada sebarang rekod, ia dipadam terus.`)) return;
+      const r = await api.deleteTask(t.id); setTasks(await api.tasks());
+      toast(r === "archived" ? "Task ada rekod → diarkibkan (rekod & sejarah disimpan)" : "Task dipadam (tiada rekod)");
     }
     else if (a === "delmember") {
       const m = S.members.find(x => x.id === b.dataset.m);
-      if (!confirm(`Padam ${m.name} berserta semua task & rekod? Kalau sekadar dah berhenti, lebih baik untick "Aktif".`)) return;
-      await api.delMember(m.id); S.members = S.members.filter(x => x.id !== m.id); S.tasks = S.tasks.filter(t => t.member_id !== m.id);
-      closeForms(); toast("Member dipadam");
+      if (!confirm(`Padam ${m.name}?\n\nJika member ini ada rekod kerja, member & semua tugasannya akan DIARKIBKAN: rekod & sejarah kekal dan boleh dilihat dalam tab Arkib.\nJika tiada sebarang rekod, ia dipadam terus.\n\n(Kalau sekadar dah berhenti kerja, cukup untick "Aktif".)`)) return;
+      const r = await api.deleteMember(m.id);
+      const [ms, ts] = await Promise.all([api.members(), api.tasks()]); setMembers(ms); setTasks(ts);
+      closeForms(); toast(r === "archived" ? "Member ada rekod → diarkibkan bersama tugasannya" : "Member dipadam (tiada rekod)");
+    }
+    // --- arkib (Owner/Admin) ---
+    else if (a === "archrec") {
+      const tid = b.dataset.t;
+      if (S.archView === tid) { S.archView = null; S.archRec = null; }
+      else { S.archView = tid; S.archRec = null; render(); S.archRec = await api.taskRecords(tid); }
+    }
+    else if (a === "restoret") {
+      const t = S.archTasks.find(x => x.id === b.dataset.t);
+      if (!confirm(`Pulihkan tugasan "${t.title}"? Ia akan muncul semula dalam checklist.`)) return;
+      await api.restoreTask(t.id); setTasks(await api.tasks()); if (S.archView === t.id) { S.archView = null; S.archRec = null; } toast("Tugasan dipulihkan");
+    }
+    else if (a === "restorem") {
+      const m = S.archMembers.find(x => x.id === b.dataset.m);
+      if (!confirm(`Pulihkan member ${m.name} berserta tugasan yang diarkibkan bersamanya?`)) return;
+      await api.restoreMember(m.id);
+      const [ms, ts] = await Promise.all([api.members(), api.tasks()]); setMembers(ms); setTasks(ts); toast("Member dipulihkan");
     }
     // --- pengurusan pengguna ---
     else if (a === "ufilter") S.ufilter = b.dataset.s;
@@ -686,7 +1110,7 @@ document.addEventListener("click", async e => {
     else if (a === "mkmember") {
       const u = S.users.find(x => x.id === b.dataset.u);
       if (!confirm(`Cipta rekod member baharu "${u.full_name}" dan hubungkan dengan akaun ini?`)) return;
-      await api.createMemberFor(u.id); await reloadUsers(); [S.tasks] = [await api.tasks()]; sortAll(); toast("Member dicipta & dihubungkan");
+      await api.createMemberFor(u.id); await reloadUsers(); setTasks(await api.tasks()); toast("Member dicipta & dihubungkan");
     }
     render();
   } catch (err) { toast(errMsg(err), 1); render(); }
@@ -698,6 +1122,7 @@ document.addEventListener("change", async e => {
   if (el.id === "memSel") { S.member = el.value; render(); }
   if (el.id === "dateIn" && el.value) { S.date = el.value; await ensure(addDays(S.date, -1), S.date); render(); }
   if (el.id === "staleIn") { S.stale = Math.max(1, +el.value || 1); render(); }
+  if (el.form && ["taskForm", "bulkForm"].includes(el.form.id) && ["use_check", "use_comment", "use_proof", "proof_multi", "comment_required", "proof_required"].includes(el.name)) syncInputForm(el.form);
   try {
     if (el.dataset.roleFor) {
       const u = S.users.find(x => x.id === el.dataset.roleFor);
@@ -708,6 +1133,15 @@ document.addEventListener("change", async e => {
       await api.linkMember(el.dataset.linkFor, el.value || null); await reloadUsers(); toast(el.value ? "Akaun dihubungkan dengan member" : "Hubungan dibuang"); render();
     }
   } catch (err) { toast(errMsg(err), 1); render(); }
+});
+
+// draf isian (komen / link) disimpan semasa menaip supaya tak hilang bila skrin dikemas kini
+document.addEventListener("input", e => {
+  const el = e.target; if (!el.dataset?.f || !el.dataset.k) return;
+  const k = el.dataset.k, [tid, d] = k.split("|"), t = S.tasks.find(x => x.id === tid); if (!t) return;
+  const dr = draftOf(t, d);
+  if (el.dataset.f === "comment") { dr.comment = el.value; dr.dirtyC = true; }
+  if (el.dataset.f === "link") { if (!dr.links.length) dr.links = [""]; dr.links[+el.dataset.i] = el.value; dr.dirtyL = true; }
 });
 
 document.addEventListener("submit", async e => {
@@ -723,18 +1157,22 @@ document.addEventListener("submit", async e => {
     }
     else if (f.id === "taskForm") {
       if (!days.length) return toast("Pilih sekurang-kurangnya satu hari", 1);
+      const inp = readInputs(fd);
+      if (!inp.use_check && !inp.use_comment && !inp.use_proof) return toast("Tak boleh simpan: sekurang-kurangnya satu input (Checkbox / Komen / Link) mesti ON.", 1);
       const t = { ...S.editTask, member_id: S.editTask.member_id || S.manageMember, section: val("section"), title: val("title"),
-        link: val("link"), time: val("time"), days, start_date: val("start_date") || today(), active: fd.has("active") };
+        link: val("link"), time: val("time"), days, start_date: val("start_date") || today(), active: fd.has("active"), ...inp };
       if (!t.id) t.sort = nextSort();
       const saved = await api.saveTask(t); upd(S.tasks, saved); sortAll(); closeForms(); toast("Task disimpan");
     }
     else if (f.id === "bulkForm") {
       if (!days.length) return toast("Pilih sekurang-kurangnya satu hari", 1);
+      const inp = readInputs(fd);
+      if (!inp.use_check && !inp.use_comment && !inp.use_proof) return toast("Tak boleh simpan: sekurang-kurangnya satu input (Checkbox / Komen / Link) mesti ON.", 1);
       const base = nextSort();
       const arr = val("lines").split("\n").map(l => l.trim()).filter(Boolean).map((l, i) => {
         const [title, ...rest] = l.split("|");
         return { member_id: S.manageMember, section: val("section"), title: title.trim(), link: rest.join("|").trim(), time: val("time"),
-          days, start_date: val("start_date") || today(), active: true, sort: base + i };
+          days, start_date: val("start_date") || today(), active: true, sort: base + i, ...inp };
       });
       const saved = await api.insertTasks(arr); S.tasks.push(...saved); sortAll(); closeForms(); toast(`${saved.length} task ditambah`);
     }
@@ -885,7 +1323,7 @@ async function start() {
 async function boot() {
   if (DEMO) {
     api = demoApi(); $("#demo").hidden = false;
-    window.__trbDemo = { authView, statusView };   // untuk pratonton skrin akaun dalam mod demo
+    window.__trbDemo = { authView, statusView, api, asRole: r => { ME.role = r; render(); } };   // mod demo sahaja   // untuk pratonton skrin akaun dalam mod demo
     return enter({ id: "demo-owner" });
   }
   // Baca parameter dari link email SEBELUM Supabase memprosesnya
