@@ -139,6 +139,28 @@ fieldset.inputs legend{font-size:13px;font-weight:600;color:var(--ink);padding:0
 .rulehint{font-size:12px;background:#f1f5f9;border-radius:8px;padding:8px 10px;color:var(--ink)}
 .rulehint.bad{background:var(--badbg);color:var(--bad)}
 .uid{font-family:ui-monospace,monospace;font-size:12px;background:#f1f3f5;padding:6px 8px;border-radius:6px;word-break:break-all;user-select:all}
+/* --- Modul Kehadiran Staff (v1) --- */
+.att-widget{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0 2px;border-top:1px solid var(--line);margin-top:10px}
+.att-label{font-size:13px;color:var(--mute);white-space:nowrap;flex-shrink:0}
+.att-sel{font:inherit;padding:5px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+.att-badge{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;padding:4px 11px;border-radius:99px}
+.att-hadir{background:#dcfce7;color:#15803d}
+.att-half{background:#dbeafe;color:#1d4ed8}
+.att-cuti,.att-mc,.att-off{background:#f3f4f6;color:#6b7280}
+.att-absent{background:#fee2e2;color:#b91c1c}
+.att-pending{background:#fef3c7;color:#b45309}
+.trow.att-exempt{opacity:.45;cursor:default}
+.chip.att-na{background:#f1f3f5;color:#9ca3af}
+.trow.locked{opacity:.75;cursor:default}
+.chip.locked{background:#e5e7eb;color:#374151;font-size:11px}
+.att-stats{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;font-size:12px}
+.att-stats span{display:inline-flex;align-items:center;gap:3px}
+.att-week{margin-top:10px}
+.att-week td{padding:5px 6px;font-size:13px}
+.att-week tr.att-today td{background:var(--brandbg)}
+.att-week tr.att-future td{opacity:.45}
+.att-week tfoot td{font-weight:600;border-top:2px solid var(--line);border-bottom:none;padding-top:7px}
+.att-week .att-sel{font-size:12px;padding:3px 6px}
 </style>
 </head>
 <body>
@@ -149,7 +171,7 @@ fieldset.inputs legend{font-size:13px;font-weight:600;color:var(--ink);padding:0
     <button data-tab="today">✅ Checklist Harian</button>
     <button data-tab="week">📅 Grid Minggu</button>
     <button data-tab="summary">📊 Ringkasan</button>
-    <button data-tab="manage">⚙️ Urus Team &amp; Task</button>
+    <button data-tab="manage">⚙️ Urus Task KPI</button>
     <button data-tab="users">👥 Pengurusan Pengguna</button>
     <button data-tab="arkib">🗄️ Arkib</button>
   </nav>
@@ -169,7 +191,7 @@ fieldset.inputs legend{font-size:13px;font-weight:600;color:var(--ink);padding:0
 // =====================================================================
 const SUPABASE_URL = "https://oyvsmprmustmsirfdsqu.supabase.co"
 const SUPABASE_KEY = "sb_publishable_H0oVuPmAef-Zi0ZXfyonIw_2t1UmOxi"
-const SITE_URL     = "https://azeez189.github.io/trb-tracker/";  // alamat website (untuk link email)
+const SITE_URL     = "http://localhost/";  // testing lokal — bukan production
 // =====================================================================
 
 const DEMO = !SUPABASE_URL || !SUPABASE_KEY;
@@ -241,6 +263,19 @@ function sbApi(sb) {
       p_set_comment: !!p.p_set_comment, p_comment: p.p_comment ?? null, p_base_comment: p.p_base_comment ?? null,
       p_set_links: !!p.p_set_links, p_links: p.p_links ?? null, p_base_links: p.p_base_links ?? null })),
     history: async (tid, d) => ok(await sb.from("submission_history").select("*").eq("task_id", tid).eq("date", d).order("changed_at", { ascending: false })),
+    // --- kehadiran staff ---
+    attends: async (f, t) => {
+      let out = [];
+      for (let i = 0; ; i += 1000) {
+        const d = ok(await sb.from("attendance").select("*").gte("date", f).lte("date", t).order("date").order("member_id").range(i, i + 999));
+        out = out.concat(d);
+        if (d.length < 1000) return out;
+      }
+    },
+    saveAttend: async (member_id, date, status) => ok(await sb.from("attendance").upsert(
+      { member_id, date, status, noted_by: ME?.id ?? null, noted_at: new Date().toISOString() },
+      { onConflict: "member_id,date" }
+    ).select().single()),
     // --- akaun & pengguna (semua disemak di server oleh RLS / fungsi SQL) ---
     myProfile: async uid => ok(await sb.from("profiles").select("*").eq("id", uid).maybeSingle()),
     people: async () => ok(await sb.rpc("people")),
@@ -299,6 +334,12 @@ function demoApi() {
     subs: async (f, t) => [...st.subs.values()].filter(r => r.date >= f && r.date <= t).map(r => ({ ...r, links: [...r.links] })),
     save: async (task_id, date, p) => demoSave(st, task_id, date, p),
     history: async (tid, d) => st.hist.filter(h => h.task_id === tid && h.date === d).slice().reverse(),
+    attends: async (f, t) => [...st.attends.values()].filter(r => r.date >= f && r.date <= t).map(r => ({ ...r })),
+    saveAttend: async (member_id, date, status) => {
+      const rec = { id: uid(), member_id, date, status, noted_by: ME?.id ?? null, noted_at: new Date().toISOString() };
+      st.attends.set(member_id + "|" + date, rec);
+      return rec;
+    },
     myProfile: async () => ({ ...st.users[0] }),
     people: async () => st.users.map(u => ({ id: u.id, full_name: u.full_name })),
     users: async () => st.users.map(u => ({ ...u })),
@@ -431,7 +472,7 @@ function seed() {
   if (g.days.includes(parse(T).getDay())) { checks.delete(tk); info.delete(tk);
     subs.set(tk, { id: uid(), task_id: g.id, date: T, ticked: true, comment: null, links: [], completed: false, legacy: false, rules: { ...inputSettings(g), legacy: false },
       submitted_by: "u-haziq", submitted_at: iso(T, 10), updated_by: null, updated_at: null }); }
-  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks, info, users, subs, hist: [] };
+  return { members: all.sort((a, b) => a.name.localeCompare(b.name)), tasks, checks, info, users, subs, hist: [], attends: new Map() };
 }
 
 // ---------- state ----------
@@ -441,6 +482,7 @@ let RECOVERY = false;     // true bila user buka link reset password
 const S = { members: [], tasks: [], done: new Set(), info: new Map(), people: new Map(), users: [], ufilter: "pending",
   subs: new Map(), subRange: null, drafts: new Map(), open: new Set(), hist: new Map(), conflict: new Set(),
   archTasks: [], archMembers: [], archView: null, archRec: null,
+  attendance: new Map(), attRange: null,
   range: null, tab: "today", member: "", date: today(),
   week: mondayOf(today()), stale: 3, editTask: null, editMember: null, bulk: false, manageMember: null };
 
@@ -448,16 +490,28 @@ const S = { members: [], tasks: [], done: new Set(), info: new Map(), people: ne
 const ROLE_LABEL = { owner: "Owner", admin: "Admin", editor: "Editor", staff: "Staff" };
 const STATUS_LABEL = { pending: "Pending", approved: "Approved", rejected: "Rejected", suspended: "Suspended" };
 const can = {
-  manage: () => ["owner", "admin", "editor"].includes(ME?.role),
+  manage: () => ["owner", "admin", "editor", "staff"].includes(ME?.role),
+  manageTeam: () => ["owner", "admin", "editor"].includes(ME?.role),
   users: () => ["owner", "admin"].includes(ME?.role),
   delMember: () => ["owner", "admin"].includes(ME?.role),
+  isStaff: () => ME?.role === "staff",
 };
 const canActOn = u => !!ME && u.id !== ME.id &&
   (ME.role === "owner" ? u.role !== "owner" : ME.role === "admin" ? ["staff", "editor"].includes(u.role) : false);
 const roleOptions = () => ME.role === "owner" ? ["admin", "editor", "staff"] : ["editor", "staff"];
-const errMsg = e => (e?.code === "42501" || /row-level security|permission denied/i.test(e?.message || ""))
-  ? "Tiada kebenaran untuk tindakan ini." : (e?.message || String(e));
+const errMsg = e => {
+  if (e?.code === "42501" || /row-level security|permission denied/i.test(e?.message || "")) return "Tiada kebenaran untuk tindakan ini.";
+  if (e?.code === "PT423" || /^PT423/.test(e?.message || "")) return "🔒 Rekod ini sudah dikunci. Hubungi Owner atau Admin untuk pindaan.";
+  return e?.message || String(e);
+};
 
+async function ensureAttend(f, t) {
+  if (S.attRange && f >= S.attRange[0] && t <= S.attRange[1]) return;
+  if (S.attRange) { if (S.attRange[0] < f) f = S.attRange[0]; if (S.attRange[1] > t) t = S.attRange[1]; }
+  const rows = await api.attends(f, t);
+  for (const r of rows) S.attendance.set(r.member_id + "|" + r.date, r.status);
+  S.attRange = [f, t];
+}
 async function ensure(f, t) {
   if (S.range && f >= S.range[0] && t <= S.range[1]) return;
   if (S.range) { if (S.range[0] < f) f = S.range[0]; if (S.range[1] > t) t = S.range[1]; }
@@ -480,6 +534,7 @@ async function loadAll() {
   S.range = null; S.subRange = null; S.subs = new Map();
   await ensure(addDays(today(), -120), addDays(today(), 7));
   await ensureSubs(addDays(mondayOf(today()), -7), addDays(today(), 7));
+  await ensureAttend(addDays(mondayOf(today()), -7), addDays(today(), 14));
   try { S.people = new Map((await api.people()).map(p => [p.id, p.full_name])); } catch { S.people = new Map(); }
   if (!can.manage()) S.member = ME.member_id || "";
   else if (!S.member || !S.members.some(m => m.id === S.member)) S.member = S.members.find(m => m.active)?.id || "";
@@ -585,19 +640,35 @@ function grouped(list) {
   return out;
 }
 function stats(mid, ws) {
-  const T = today(); let sch = 0, done = 0, miss = 0, pend = 0; const missed = [];
+  const T = today();
+  let sch = 0, done = 0, miss = 0, pend = 0, exempt = 0;
+  let kpiDone = 0, kpiTarget = 0;
+  const missed = [];
+
   for (let i = 0; i < 7; i++) {
     const d = addDays(ws, i);
+    let dayDone = 0, daySch = 0;
+
     for (const t of S.tasks) {
       if (t.member_id !== mid || !scheduled(t, d)) continue;
       sch++;
-      if (isDone(t, d)) done++;
+      if (isTaskExempted(t, d)) { exempt++; continue; }    // cuti/mc/off_day: langkau sepenuhnya
+      daySch++;
+      if (isDone(t, d)) { done++; dayDone++; }
       else if (d < T) { miss++; missed.push([t, d]); }
       else pend++;
     }
+
+    // Kira sasaran KPI hari ini
+    if (daySch > 0) {
+      const target = isHalfDay(mid, d) ? halfDayTarget(daySch) : daySch;
+      kpiTarget += target;
+      kpiDone   += Math.min(dayDone, target);  // cap pada sasaran (Half Day tak boleh >100%)
+    }
   }
-  const due = done + miss;
-  return { sch, done, miss, pend, missed, pct: due ? Math.round(done * 100 / due) : null };
+
+  const pct = kpiTarget > 0 ? Math.min(100, Math.round(kpiDone * 100 / kpiTarget)) : null;
+  return { sch, done, miss, pend, missed, exempt, kpiDone, kpiTarget, pct };
 }
 function staleList() {
   const T = today(), out = [];
@@ -622,6 +693,162 @@ const daysTxt = ds => {
   return WEEK_ORDER.filter(d => ds.includes(d)).map(d => DS[d]).join(", ");
 };
 
+// =====================================================================
+//  MODUL KEHADIRAN STAFF
+// =====================================================================
+const ATT_STATUS = {
+  hadir:          { label: "✅ Hadir",          cls: "att-hadir",  kpi: "normal"  },
+  half_am:        { label: "🌅 Half Day AM",     cls: "att-half",   kpi: "half_am" },
+  half_pm:        { label: "🌇 Half Day PM",     cls: "att-half",   kpi: "half_pm" },
+  cuti:           { label: "🏖️ Cuti",            cls: "att-cuti",   kpi: "exempt"  },
+  mc:             { label: "🏥 MC",              cls: "att-mc",     kpi: "exempt"  },
+  off_day:        { label: "🛑 Off Day",         cls: "att-off",    kpi: "exempt"  },
+  tidak_hadir:    { label: "⚠️ Tidak Hadir",     cls: "att-absent", kpi: "normal"  },
+  belum_disahkan: { label: "❓ Belum Disahkan",  cls: "att-pending",kpi: "normal"  },
+};
+
+// Ambil status kehadiran semasa (default: belum_disahkan)
+// Ahad (DOW=0) = automatik off_day — tiada rekod DB diperlukan
+const getAttend = (mid, d) => {
+  if (parse(d).getDay() === 0) return "off_day";
+  return S.attendance.get(mid + "|" + d) || "belum_disahkan";
+};
+
+// Tentukan sama ada task ini "pagi" atau "petang" berdasarkan medan 'time'
+function taskPeriod(t) {
+  if (!t.time) return "pm";                                  // tiada masa → anggap petang/seharian
+  const s = t.time.toLowerCase();
+  if (/pm|petang|malam/i.test(s)) return "pm";
+  if (/am|pagi/i.test(s)) return "am";
+  const m = s.match(/(\d{1,2})[:.](\d{2})/);               // cuba parse format "10:00" atau "10.00"
+  if (m) return parseInt(m[1]) < 12 ? "am" : "pm";
+  return "pm";
+}
+
+// Adakah task ini dikecualikan dari KPI pada tarikh ini?
+// Half Day TIDAK dikecualikan — KPI diselaraskan melalui formula sasaran 50%
+function isTaskExempted(t, d) {
+  return ["cuti", "mc", "off_day"].includes(getAttend(t.member_id, d));
+}
+
+// Adakah hari ini Half Day (AM atau PM)?
+const isHalfDay = (mid, d) => ["half_am", "half_pm"].includes(getAttend(mid, d));
+
+// Adakah rekod ini dikunci untuk pengguna semasa?
+// Staff tidak boleh edit atau tick submission hari lepas (selepas midnight KL)
+const isLocked = d => ME?.role === "staff" && d < today();
+
+// Sasaran KPI Half Day = CEIL(jumlah task × 0.5), minimum 1 jika ada task
+const halfDayTarget = sch => sch > 0 ? Math.ceil(sch * 0.5) : 0;
+
+// Statistik kehadiran bagi satu minggu (hanya hari ada task dijadualkan)
+function attendStats(mid, ws) {
+  const counts = {};
+  for (const k of Object.keys(ATT_STATUS)) counts[k] = 0;
+  const m = S.members.find(x => x.id === mid);
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(ws, i);
+    if (!m || (m.start_date && d < m.start_date) || (m.end_date && d > m.end_date)) continue;
+    if (!S.tasks.some(t => t.member_id === mid && scheduled(t, d))) continue; // skip hari tiada task
+    counts[getAttend(mid, d)]++;
+  }
+  return counts;
+}
+
+// Kira Attendance Rate untuk hari LEPAS dalam minggu ini
+// Ahad & cuti/mc/off_day dikecualikan dari denominator
+// belum_disahkan (hari lepas) → rate = null, belum boleh dikira
+function attendanceRate(mid, ws) {
+  const m = S.members.find(x => x.id === mid);
+  const T = today();
+  let workDays = 0, hadirSetara = 0, pendingDays = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(ws, i);
+    if (d > T) continue; // hari akan datang — langkau
+    if (!m || (m.start_date && d < m.start_date) || (m.end_date && d > m.end_date)) continue;
+    if (parse(d).getDay() === 0) continue; // Ahad = auto off_day, bukan working day
+    // Hanya kira hari yang ada task ATAU ada rekod attendance
+    const hasTasks = S.tasks.some(t => t.member_id === mid && scheduled(t, d));
+    const hasRecord = S.attendance.has(mid + "|" + d);
+    if (!hasTasks && !hasRecord) continue;
+    const status = getAttend(mid, d);
+    // cuti/mc/off_day yang diluluskan → dikecualikan dari denominator
+    if (["cuti", "mc", "off_day"].includes(status)) continue;
+    workDays++;
+    if (status === "belum_disahkan") { pendingDays++; continue; }
+    if (status === "hadir") hadirSetara += 1;
+    else if (status === "half_am" || status === "half_pm") hadirSetara += 0.5;
+    // tidak_hadir → 0
+  }
+  const rate = workDays > 0 && pendingDays === 0
+    ? Math.round(hadirSetara * 100 / workDays) : null;
+  return { rate, workDays, pendingDays, hadirSetara };
+}
+
+// Sel kehadiran padat untuk jadual Ringkasan (tanpa wrapper div)
+function attCell(mid, d) {
+  if (parse(d).getDay() === 0)
+    return `<span class="att-badge att-off" style="font-size:12px">🛑 Auto</span>`;
+  const status = getAttend(mid, d);
+  const info = ATT_STATUS[status] || ATT_STATUS.belum_disahkan;
+  if (!can.users())
+    return `<span class="att-badge ${info.cls}" style="font-size:12px">${info.label}</span>`;
+  const opts = Object.entries(ATT_STATUS)
+    .map(([v, i]) => `<option value="${v}" ${v === status ? "selected" : ""}>${i.label}</option>`).join("");
+  return `<select class="att-sel" data-att-mid="${mid}" data-att-d="${d}">${opts}</select>`;
+}
+
+// Status kehadiran yang dibenarkan untuk Staff isi sendiri
+const ATT_STATUS_STAFF = ["hadir", "half_am", "half_pm", "cuti", "mc"];
+
+// Widget kehadiran:
+// - Ahad: auto Off Day, tiada dropdown
+// - Staff hari ini: dropdown terhad (ATT_STATUS_STAFF sahaja)
+// - Staff hari lain / member lain: read-only badge
+// - Owner/Admin: dropdown penuh semua status
+function attendWidget(mid, d) {
+  const m = S.members.find(x => x.id === mid); if (!m) return "";
+
+  // Ahad: auto Off Day — tiada siapa boleh ubah
+  if (parse(d).getDay() === 0) {
+    return `<div class="att-widget"><span class="att-label">Kehadiran:</span>
+      <span class="badge att-badge att-off">🛑 Off Day</span>
+      <span class="chip mute" style="font-size:11px">Auto (Ahad)</span></div>`;
+  }
+
+  const status = getAttend(mid, d);
+  const info = ATT_STATUS[status] || ATT_STATUS.belum_disahkan;
+  const T = today();
+
+  // Staff: boleh isi kehadiran diri sendiri untuk hari ini sahaja
+  const isOwnMember = ME?.member_id && mid === ME.member_id;
+  if (can.isStaff() && isOwnMember && d === T) {
+    // Status semasa belum_disahkan → tunjuk placeholder "Sila Isi"
+    const opts = [
+      status === "belum_disahkan" ? `<option value="" disabled selected>— Sila Isi Kehadiran —</option>` : "",
+      ...ATT_STATUS_STAFF.map(v => `<option value="${v}" ${v === status ? "selected" : ""}>${ATT_STATUS[v].label}</option>`)
+    ].join("");
+    const kpiNote = info.kpi === "exempt"
+      ? `<span class="chip warn" style="font-size:12px">Task hari ini dikecualikan dari KPI</span>` : "";
+    return `<div class="att-widget"><span class="att-label">Kehadiran:</span>
+      <select data-att-mid="${mid}" data-att-d="${d}">${opts}</select>${kpiNote}</div>`;
+  }
+
+  // Staff: hari lain atau bukan member sendiri → badge sahaja
+  if (can.isStaff()) {
+    return `<div class="att-widget"><span class="att-label">Kehadiran:</span>
+      <span class="badge att-badge ${info.cls}">${info.label}</span></div>`;
+  }
+
+  // Owner/Admin: dropdown penuh
+  const opts = Object.entries(ATT_STATUS)
+    .map(([v, i]) => `<option value="${v}" ${v === status ? "selected" : ""}>${i.label}</option>`).join("");
+  const kpiNote = info.kpi === "exempt"
+    ? `<span class="chip warn" style="font-size:12px">Task hari ini dikecualikan dari KPI</span>` : "";
+  return `<div class="att-widget"><span class="att-label">Kehadiran:</span>
+    <select data-att-mid="${mid}" data-att-d="${d}">${opts}</select>${kpiNote}</div>`;
+}
+
 // ---------- komponen ----------
 const link = t => t.link ? `<a class="lnk" href="${esc(safeUrl(t.link))}" target="_blank" rel="noopener">Buka ↗</a>` : "";
 const memberSel = all => `<select id="memSel">${all && can.manage() ? `<option value="">Semua member</option>` : ""}${S.members.filter(m => m.active)
@@ -631,17 +858,58 @@ const weekNav = () => `<div class="datenav"><button data-act="wk" data-n="-7">�
 // ---------- view: checklist harian ----------
 function vToday() {
   const d = S.date, T = today();
+
+  // Gate kehadiran untuk staff: hari ini sahaja
+  // Jika belum_disahkan → sembunyikan senarai task, tunjuk dropdown kehadiran sahaja
+  if (can.isStaff() && ME.member_id && d === T && parse(d).getDay() !== 0) {
+    const attStatus = getAttend(ME.member_id, d);
+    if (attStatus === "belum_disahkan") {
+      const opts = [
+        `<option value="" disabled selected>— Sila Isi Kehadiran —</option>`,
+        ...ATT_STATUS_STAFF.map(v => `<option value="${v}">${ATT_STATUS[v].label}</option>`)
+      ].join("");
+      return `<div class="card"><h2>Checklist Harian — ${DN[parse(d).getDay()]} ${dm(d)}</h2>
+        <div class="att-widget" style="padding:16px 0">
+          <span class="att-label">Status Kehadiran Hari Ini:</span>
+          <select data-att-mid="${ME.member_id}" data-att-d="${d}">${opts}</select>
+        </div>
+        <p class="mute" style="margin-top:8px">Sila isi kehadiran terlebih dahulu untuk melihat task hari ini.</p></div>`;
+    }
+  }
+
   const list = tasksFor(S.member).filter(t => scheduled(t, d));
-  const done = list.filter(t => isDone(t, d)).length;
-  const pct = list.length ? Math.round(done * 100 / list.length) : 0;
+  const activeList = list.filter(t => !isTaskExempted(t, d));
+  const doneCount = activeList.filter(t => isDone(t, d)).length;
+
+  // Kira KPI selaras per member kemudian gabung
+  let kpiDoneAll = 0, kpiTargetAll = 0;
+  const viewMembers = S.member
+    ? S.members.filter(m => m.id === S.member)
+    : S.members.filter(m => m.active);
+  for (const m of viewMembers) {
+    const mTasks = activeList.filter(t => t.member_id === m.id);
+    const mDone  = mTasks.filter(t => isDone(t, d)).length;
+    if (mTasks.length === 0) continue;
+    const target = isHalfDay(m.id, d) ? halfDayTarget(mTasks.length) : mTasks.length;
+    kpiTargetAll += target;
+    kpiDoneAll   += Math.min(mDone, target);
+  }
+  const kpiPct = kpiTargetAll > 0 ? Math.min(100, Math.round(kpiDoneAll * 100 / kpiTargetAll)) : 0;
+
+  // Paparan: kalau ada Half Day, tunjuk dua maklumat berasingan
+  const hasHD = viewMembers.some(m => activeList.some(t => t.member_id === m.id) && isHalfDay(m.id, d));
+  const progTxt = hasHD
+    ? `<b>${doneCount}/${activeList.length}</b> task siap &nbsp;·&nbsp; KPI: <b>${kpiPct}%</b> <span class="mute">(sasaran ${kpiTargetAll} task)</span>`
+    : `<b>${doneCount}/${list.length}</b> siap · ${kpiPct}%`;
+
   let h = `<div class="card"><div class="tools">${memberSel(true)}
     <div class="datenav"><button data-act="day" data-n="-1">‹</button><input type="date" id="dateIn" value="${d}"><button data-act="day" data-n="1">›</button>
     ${d !== T ? `<button class="ghost sm" data-act="gotoday">Hari ini</button>` : ""}</div>
     <div class="dayname">${DN[parse(d).getDay()]}</div></div>
-    <div class="prog"><div class="progtxt"><b>${done}/${list.length}</b> siap · ${pct}%</div><div class="pbar"><i style="width:${pct}%"></i></div></div></div>`;
+    <div class="prog"><div class="progtxt">${progTxt}</div><div class="pbar"><i style="width:${kpiPct}%"></i></div></div></div>`;
   if (!list.length) return h + `<div class="card empty">Tiada task dijadualkan untuk hari ni.</div>`;
   for (const g of grouped(list)) {
-    h += `<div class="card"><h2>${esc(g.m.name)}<small>${esc(g.m.role || "")}</small></h2>`;
+    h += `<div class="card"><h2>${esc(g.m.name)}<small>${esc(g.m.role || "")}</small></h2>${attendWidget(g.m.id, d)}`;
     for (const s of g.secs) {
       h += `<h3>${esc(s.name)}</h3><div class="tlist">` + s.tasks.map(t => taskRow(t, d, T)).join("") + `</div>`;
     }
@@ -651,6 +919,21 @@ function vToday() {
 }
 
 function taskRow(t, d, T) {
+  // Semak kehadiran: task dikecualikan (Cuti/MC/Off Day/Half Day yang berkaitan)
+  if (isTaskExempted(t, d)) {
+    const attInfo = ATT_STATUS[getAttend(t.member_id, d)] || ATT_STATUS.belum_disahkan;
+    return `<div class="trow att-exempt"><span class="tt">${esc(t.title)}</span>
+      ${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}
+      <span class="chip att-na">N/A — ${attInfo.label}</span>
+      ${t.link ? `<a class="lnk" href="${esc(safeUrl(t.link))}" target="_blank" rel="noopener">Buka ↗</a>` : ""}</div>`;
+  }
+  // Semak kunci: staff tidak boleh edit atau tick rekod hari lepas
+  if (isLocked(d)) {
+    const ok = isDone(t, d);
+    const base = `<span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}`;
+    const whoInfo = ok ? `<span class="whotick">✓ ${esc(whoTxt(t, d))}</span>` : `<span class="chip bad">Tertinggal</span>`;
+    return `<div class="trow ${ok ? "ok" : "late"} locked">${base}${inputBadges(t)}${whoInfo}<span class="chip locked">🔒 Dikunci</span>${link(t)}</div>`;
+  }
   const k = t.id + "|" + d, ok = isDone(t, d), late = !ok && d < T, i = inputSettings(t);
   const base = `<span class="tt">${esc(t.title)}</span>${t.time ? `<span class="chip">${esc(t.time)}</span>` : ""}`;
   if (!hasInputs(t) && i.use_check)   // Checkbox sahaja: sama seperti sebelum ini
@@ -731,7 +1014,20 @@ function vWeek() {
       }
     }
   }
-  h += `</tbody><tfoot><tr><td class="tcol">% siap sehari</td>${col.map(([a, b]) => `<td>${b ? Math.round(a * 100 / b) + "%" : ""}</td>`).join("")}<td></td></tr></tfoot></table></div>`;
+  // Footer: kira KPI selaras per hari (Half Day menggunakan sasaran 50%)
+  const colAdj = days.map((d, i) => {
+    let kpiD = 0, kpiT = 0;
+    for (const m of S.members.filter(m => m.active)) {
+      if (S.member && m.id !== S.member) continue;
+      const mt = S.tasks.filter(t => t.member_id === m.id && scheduled(t, d) && !isTaskExempted(t, d));
+      if (!mt.length) continue;
+      const mDone = mt.filter(t => isDone(t, d)).length;
+      const target = isHalfDay(m.id, d) ? halfDayTarget(mt.length) : mt.length;
+      kpiT += target; kpiD += Math.min(mDone, target);
+    }
+    return [kpiD, kpiT];
+  });
+  h += `</tbody><tfoot><tr><td class="tcol">KPI sehari</td>${colAdj.map(([a, b]) => `<td>${b ? Math.min(100, Math.round(a * 100 / b)) + "%" : ""}</td>`).join("")}<td></td></tr></tfoot></table></div>`;
   return h;
 }
 
@@ -744,9 +1040,31 @@ function vSummary() {
     const s = stats(m.id, S.week); all.push([m, s]);
     const trend = [3, 2, 1].map(k => stats(m.id, addDays(S.week, -7 * k)).pct);
     const cls = s.pct == null ? "" : s.pct >= 90 ? "good" : s.pct >= 70 ? "mid" : "low";
+    const ar = attendanceRate(m.id, S.week);
+    const arTxt = ar.rate !== null
+      ? `<b>${ar.rate}%</b>`
+      : ar.workDays > 0
+        ? `❓ <span class="mute">(${ar.pendingDays} hari belum disahkan)</span>`
+        : `<span class="mute">—</span>`;
+    const exemptNote = s.exempt ? `<span class="mute"> · <b>${s.exempt}</b> dikecualikan</span>` : "";
+    const halfNote   = s.kpiTarget < (s.sch - s.exempt) && s.kpiTarget > 0
+      ? `<span class="mute"> · sasaran KPI <b>${s.kpiTarget}</b> task</span>` : "";
+    const T2 = today();
+    const days7 = Array.from({length: 7}, (_, i) => addDays(S.week, i));
+    let attTable = `<table class="tbl att-week"><thead><tr><th>Hari</th><th>Tarikh</th><th>Kehadiran</th><th>Task</th></tr></thead><tbody>`;
+    for (const d of days7) {
+      const isToday = d === T2, isFuture = d > T2;
+      const dayTasks = S.tasks.filter(t => t.member_id === m.id && scheduled(t, d) && !isTaskExempted(t, d));
+      const dayDone = dayTasks.filter(t => isDone(t, d)).length;
+      const taskCell = dayTasks.length > 0 ? `${dayDone}/${dayTasks.length}` : `<span class="mute">—</span>`;
+      const rowCls = isToday ? ' class="att-today"' : isFuture ? ' class="att-future"' : '';
+      attTable += `<tr${rowCls}><td>${DN[parse(d).getDay()]}</td><td>${dm(d)}</td><td>${attCell(m.id, d)}</td><td>${taskCell}</td></tr>`;
+    }
+    attTable += `</tbody><tfoot><tr><td colspan="2">Kehadiran minggu ini</td><td>${arTxt}</td><td>KPI: ${s.pct != null ? s.pct + "%" : "<span class='mute'>—</span>"}</td></tr></tfoot></table>`;
     h += `<div class="card"><div class="mtop"><div><b>${esc(m.name)}</b><div class="mute">${esc(m.role || "")}</div></div><div class="pct ${cls}">${s.pct == null ? "–" : s.pct + "%"}</div></div>
       <div class="pbar"><i style="width:${s.pct || 0}%"></i></div>
-      <div class="nums"><span><b>${s.done}</b> siap</span><span class="bad"><b>${s.miss}</b> tertinggal</span><span><b>${s.pend}</b> belum sampai</span></div>
+      <div class="nums"><span><b>${s.done}</b> siap</span><span class="bad"><b>${s.miss}</b> tertinggal</span><span><b>${s.pend}</b> belum sampai</span>${exemptNote}${halfNote}</div>
+      ${attTable}
       <div class="trend mute">Trend: ${trend.map(p => p == null ? "–" : p + "%").join(" → ")} → <b>${s.pct == null ? "–" : s.pct + "%"}</b></div>
       <button class="ghost sm" data-act="openweek" data-m="${m.id}">Lihat grid ›</button></div>`;
   }
@@ -772,6 +1090,9 @@ function vSummary() {
 
 // ---------- view: urus ----------
 function vManage() {
+  // Staff: hanya urus task sendiri — panel kiri (senarai member) disembunyikan
+  if (can.isStaff()) return vManageStaff();
+
   if (!S.members.some(m => m.id === S.manageMember)) S.manageMember = S.members[0]?.id || null;
   const m = S.members.find(x => x.id === S.manageMember);
   let h = `<div class="mgrid"><div><div class="card"><div class="tools"><h2 style="margin:0">Team</h2><div class="spacer"></div><button class="sm" data-act="newmember">+ Member</button></div>
@@ -791,6 +1112,37 @@ function vManage() {
     h += `</div>`;
   } else h += `<div class="card empty">Tambah member dulu (butang <b>+ Member</b>).</div>`;
   return h + `</div></div>`;
+}
+
+// Paparan Urus Task KPI khas untuk Staff
+// - Hanya tunjuk task milik sendiri
+// - Edit/Padam hanya untuk task yang dicipta sendiri (created_by = ME.id)
+// - Task Owner/Admin (created_by = null) tunjuk sebagai read-only
+function vManageStaff() {
+  const myMember = S.members.find(x => x.id === ME.member_id);
+  if (!myMember) return `<div class="card empty">Akaun anda belum dihubungkan dengan rekod Member. Hubungi Owner/Admin.</div>`;
+  const ts = S.tasks.filter(t => t.member_id === myMember.id);
+  const myTasks = ts.filter(t => t.created_by === ME.id);
+  const adminTasks = ts.filter(t => !t.created_by || t.created_by !== ME.id);
+  let h = `<div class="card"><div class="tools"><h2 style="margin:0">${esc(myMember.name)}</h2><div class="spacer"></div>
+    <button class="ghost sm" data-act="bulk">+ Tambah pukal</button><button class="sm" data-act="newtask">+ Task</button></div>
+    <p class="mute">${esc(myMember.role || "")}${myMember.start_date ? " · Mula " + dm(myMember.start_date) : ""} · ${ts.length} task (${myTasks.length} dicipta sendiri)</p>
+    ${S.editTask ? taskForm(S.editTask) : ""}${S.bulk ? bulkForm() : ""}`;
+  if (!ts.length && !S.editTask && !S.bulk) h += `<p class="mute">Belum ada task. Klik <b>+ Task</b> untuk tambah task sendiri.</p>`;
+  // Task dicipta Owner/Admin — read-only untuk staff
+  if (adminTasks.length) {
+    h += `<h3>Task ditetapkan Owner/Admin</h3><table class="tbl fix"><tbody>${adminTasks.map(t =>
+      `<tr class="${t.active ? "" : "off"}"><td>${esc(t.title)} ${link(t)}<div style="margin-top:3px">${inputBadges(t)}</div></td><td class="mute">${esc(t.time || "")}</td><td class="mute">${daysTxt(t.days || [])}</td>
+      <td class="r"><span class="chip mute" style="font-size:11px">🔒 Tidak boleh ubah</span></td></tr>`).join("")}</tbody></table>`;
+  }
+  // Task dicipta staff sendiri — boleh edit sahaja (tiada padam)
+  if (myTasks.length) {
+    h += `<h3>Task saya sendiri</h3><table class="tbl fix"><tbody>${myTasks.map(t =>
+      `<tr class="${t.active ? "" : "off"}"><td>${esc(t.title)} ${link(t)}<div style="margin-top:3px">${inputBadges(t)}</div></td><td class="mute">${esc(t.time || "")}</td><td class="mute">${daysTxt(t.days || [])}</td>
+      <td class="r"><button class="ghost sm" data-act="edittask" data-t="${t.id}">Edit</button></td></tr>`).join("")}</tbody></table>`;
+  }
+  h += `</div>`;
+  return h;
 }
 const memberForm = m => `<form class="card form" id="memberForm"><h3 style="margin-top:0">${m.id ? "Edit" : "Tambah"} member</h3>
   <label>Nama<input name="name" required value="${esc(m.name || "")}"></label>
@@ -928,7 +1280,7 @@ function render() {
   if (!can.manage() && !ME.member_id && S.tab !== "users")
     return ($("#app").innerHTML = `<div class="card empty">Akaun anda dah diluluskan, tapi belum dihubungkan dengan rekod <b>Member</b>.<br>Minta Owner/Admin hubungkan akaun anda di tab Pengurusan Pengguna.</div>`);
   $("#app").innerHTML = (S.members.length || ["manage", "users", "arkib"].includes(S.tab)) ? v()
-    : `<div class="card empty">Belum ada member. Pergi tab <b>⚙️ Urus Team &amp; Task</b> untuk mula.</div>`;
+    : `<div class="card empty">Belum ada member. Pergi tab <b>⚙️ Urus Task KPI</b> untuk mula.</div>`;
 }
 function toast(msg, bad) {
   const t = $("#toast"); t.textContent = msg; t.className = "show" + (bad ? " bad" : "");
@@ -974,6 +1326,7 @@ const clearDraft = (k, p) => { const dr = S.drafts.get(k); if (!dr) return;
   if (p.p_set_comment) dr.dirtyC = false; if (p.p_set_links) dr.dirtyL = false;
   if (!dr.dirtyC && !dr.dirtyL) S.drafts.delete(k); };
 async function toggle(tid, d, on) {
+  if (isLocked(d)) return toast("🔒 Rekod ini sudah dikunci. Hubungi Owner atau Admin untuk pindaan.", 1);
   const t = S.tasks.find(x => x.id === tid); if (!t) return;
   const k = tid + "|" + d, r = effectiveRules(t, S.subs.get(k), d);
   if (!inputSettings(t).use_check && !r.use_check) { S.open.add(k); return render(); }
@@ -1034,9 +1387,9 @@ document.addEventListener("click", async e => {
       : { html: "Jika akaun ini wujud dan belum disahkan, email pengesahan baharu telah dihantar. Semak Inbox &amp; folder Spam." });
   }
   try {
-    if (a === "day") { S.date = addDays(S.date, n); await ensure(addDays(S.date, -1), S.date); await ensureSubs(S.date, S.date); }
-    else if (a === "gotoday") S.date = today();
-    else if (a === "wk") { S.week = addDays(S.week, n); await ensure(addDays(S.week, -21), addDays(S.week, 6)); await ensureSubs(S.week, addDays(S.week, 6)); }
+    if (a === "day") { S.date = addDays(S.date, n); await ensure(addDays(S.date, -1), S.date); await ensureSubs(S.date, S.date); await ensureAttend(S.date, S.date); }
+    else if (a === "gotoday") { S.date = today(); await ensureAttend(S.date, S.date); }
+    else if (a === "wk") { S.week = addDays(S.week, n); await ensure(addDays(S.week, -21), addDays(S.week, 6)); await ensureSubs(S.week, addDays(S.week, 6)); await ensureAttend(S.week, addDays(S.week, 6)); }
     // --- v3: panel isian ---
     else if (a === "panel") { const k = b.dataset.k; S.open.has(k) ? S.open.delete(k) : S.open.add(k); }
     else if (a === "addlink" || a === "rmlink") {
@@ -1046,6 +1399,7 @@ document.addEventListener("click", async e => {
     }
     else if (a === "savesub") {
       const k = b.dataset.k, [tid, d] = k.split("|"), t = S.tasks.find(x => x.id === tid);
+      if (isLocked(d)) return toast("🔒 Rekod ini sudah dikunci. Hubungi Owner atau Admin untuk pindaan.", 1);
       const p = draftParams(t, d);                       // hanya ruangan yang diubah
       if (!p.p_set_comment && !p.p_set_links) return toast("Tiada perubahan untuk disimpan.", 1);
       b.disabled = true;
@@ -1066,10 +1420,18 @@ document.addEventListener("click", async e => {
     else if (a === "pickm") { closeForms(); S.manageMember = b.dataset.m; }
     else if (a === "newtask") { closeForms(); S.editTask = { active: true }; }
     else if (a === "bulk") { closeForms(); S.bulk = true; }
-    else if (a === "edittask") { closeForms(); S.editTask = { ...S.tasks.find(x => x.id === b.dataset.t) }; }
+    else if (a === "edittask") {
+      const t = S.tasks.find(x => x.id === b.dataset.t);
+      // Staff hanya boleh edit task yang dicipta sendiri
+      if (can.isStaff() && (!t.created_by || t.created_by !== ME.id))
+        return toast("🔒 Hanya task yang anda cipta sendiri boleh diedit.", 1);
+      closeForms(); S.editTask = { ...t };
+    }
     else if (a === "cancel") closeForms();
     else if (a === "deltask") {
       const t = S.tasks.find(x => x.id === b.dataset.t);
+      // Staff tidak dibenarkan memadam sebarang task langsung
+      if (can.isStaff()) return toast("🔒 Staff tidak dibenarkan memadam task.", 1);
       if (!confirm(`Padam task "${t.title}"?\n\nJika task ini sudah ada rekod kerja (tick / komen / link), ia akan DIARKIBKAN, bukan dipadam: semua rekod & sejarah kekal dan boleh dilihat oleh Owner/Admin dalam tab Arkib.\n\nJika belum ada sebarang rekod, ia dipadam terus.`)) return;
       const r = await api.deleteTask(t.id); setTasks(await api.tasks());
       toast(r === "archived" ? "Task ada rekod → diarkibkan (rekod & sejarah disimpan)" : "Task dipadam (tiada rekod)");
@@ -1122,6 +1484,25 @@ document.addEventListener("change", async e => {
   if (el.id === "memSel") { S.member = el.value; render(); }
   if (el.id === "dateIn" && el.value) { S.date = el.value; await ensure(addDays(S.date, -1), S.date); render(); }
   if (el.id === "staleIn") { S.stale = Math.max(1, +el.value || 1); render(); }
+  if (el.dataset.attMid) {
+    const mid = el.dataset.attMid, d = el.dataset.attD, status = el.value;
+    if (!status) return; // placeholder "Sila Isi" dipilih — abaikan
+    // Staff: hanya boleh ubah kehadiran diri sendiri untuk hari ini
+    if (can.isStaff()) {
+      const isOwn = ME?.member_id && mid === ME.member_id;
+      if (!isOwn) return toast("Anda hanya boleh mengisi kehadiran diri sendiri.", 1);
+      if (d !== today()) return toast("🔒 Kehadiran hanya boleh diisi untuk hari ini.", 1);
+      if (!ATT_STATUS_STAFF.includes(status)) return toast("Status ini tidak boleh dipilih oleh Staff.", 1);
+    } else if (!can.users()) {
+      return toast("Tiada kebenaran untuk mengubah kehadiran.", 1);
+    }
+    try {
+      await api.saveAttend(mid, d, status);
+      S.attendance.set(mid + "|" + d, status);
+      toast("✅ Kehadiran dikemas kini: " + (ATT_STATUS[status]?.label || status));
+    } catch (e) { toast("Gagal simpan kehadiran: " + errMsg(e), 1); }
+    render(); return;
+  }
   if (el.form && ["taskForm", "bulkForm"].includes(el.form.id) && ["use_check", "use_comment", "use_proof", "proof_multi", "comment_required", "proof_required"].includes(el.name)) syncInputForm(el.form);
   try {
     if (el.dataset.roleFor) {
@@ -1159,9 +1540,12 @@ document.addEventListener("submit", async e => {
       if (!days.length) return toast("Pilih sekurang-kurangnya satu hari", 1);
       const inp = readInputs(fd);
       if (!inp.use_check && !inp.use_comment && !inp.use_proof) return toast("Tak boleh simpan: sekurang-kurangnya satu input (Checkbox / Komen / Link) mesti ON.", 1);
-      const t = { ...S.editTask, member_id: S.editTask.member_id || S.manageMember, section: val("section"), title: val("title"),
-        link: val("link"), time: val("time"), days, start_date: val("start_date") || today(), active: fd.has("active"), ...inp };
-      if (!t.id) t.sort = nextSort();
+      // Staff: member_id terkunci kepada diri sendiri; created_by ditetapkan
+      const forceMember = can.isStaff() ? ME.member_id : null;
+      const t = { ...S.editTask, member_id: forceMember || S.editTask.member_id || S.manageMember,
+        section: val("section"), title: val("title"), link: val("link"), time: val("time"),
+        days, start_date: val("start_date") || today(), active: fd.has("active"), ...inp };
+      if (!t.id) { t.sort = nextSort(); t.created_by = ME.id; } // task baru: set pemilik
       const saved = await api.saveTask(t); upd(S.tasks, saved); sortAll(); closeForms(); toast("Task disimpan");
     }
     else if (f.id === "bulkForm") {
@@ -1169,10 +1553,11 @@ document.addEventListener("submit", async e => {
       const inp = readInputs(fd);
       if (!inp.use_check && !inp.use_comment && !inp.use_proof) return toast("Tak boleh simpan: sekurang-kurangnya satu input (Checkbox / Komen / Link) mesti ON.", 1);
       const base = nextSort();
+      const bulkMember = can.isStaff() ? ME.member_id : S.manageMember;
       const arr = val("lines").split("\n").map(l => l.trim()).filter(Boolean).map((l, i) => {
         const [title, ...rest] = l.split("|");
-        return { member_id: S.manageMember, section: val("section"), title: title.trim(), link: rest.join("|").trim(), time: val("time"),
-          days, start_date: val("start_date") || today(), active: true, sort: base + i, ...inp };
+        return { member_id: bulkMember, section: val("section"), title: title.trim(), link: rest.join("|").trim(), time: val("time"),
+          days, start_date: val("start_date") || today(), active: true, sort: base + i, created_by: ME.id, ...inp };
       });
       const saved = await api.insertTasks(arr); S.tasks.push(...saved); sortAll(); closeForms(); toast(`${saved.length} task ditambah`);
     }
